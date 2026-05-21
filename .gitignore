@@ -1,0 +1,28 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.env
+frontend/.env.*
+
+# Backend
+backend/.venv/
+backend/__pycache__/
+backend/.pytest_cache/
+backend/**/*.pyc
+
+# Runtime data
+data/*.db
+data/*.sqlite
+data/uploads/*
+!data/uploads/.gitkeep
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
