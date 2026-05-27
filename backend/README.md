@@ -23,6 +23,7 @@ API docs are available at `http://localhost:8000/docs`.
 
 - `GET /api/health`
 - `POST /api/materials/upload`
+- `POST /api/materials/{material_id}/concepts/extract`
 
 ## Test
 

@@ -1,0 +1,155 @@
+import json
+import re
+from dataclasses import dataclass
+from typing import Protocol
+
+from app.core.config import settings
+
+
+@dataclass(frozen=True)
+class ExtractedConcept:
+    title: str
+    description: str
+    difficulty: str = "medium"
+    parent_title: str | None = None
+
+
+class LLMProvider(Protocol):
+    source: str
+
+    def extract_concepts(self, text: str) -> list[ExtractedConcept]:
+        pass
+
+
+class GeminiProvider:
+    source = "gemini"
+
+    def extract_concepts(self, text: str) -> list[ExtractedConcept]:
+        import google.generativeai as genai
+
+        genai.configure(api_key=settings.gemini_api_key)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content(_build_concept_prompt(text))
+        return _parse_concepts(response.text or "")
+
+
+class HeuristicProvider:
+    source = "heuristic"
+
+    def extract_concepts(self, text: str) -> list[ExtractedConcept]:
+        chunks = _candidate_chunks(text)
+        concepts: list[ExtractedConcept] = []
+
+        for chunk in chunks[:8]:
+            title = _make_title(chunk)
+            difficulty = "hard" if len(chunk) > 260 else "medium" if len(chunk) > 140 else "easy"
+            concepts.append(
+                ExtractedConcept(
+                    title=title,
+                    description=chunk[:500],
+                    difficulty=difficulty,
+                )
+            )
+
+        if not concepts:
+            concepts.append(
+                ExtractedConcept(
+                    title="핵심 개념",
+                    description=text[:500],
+                    difficulty="medium",
+                )
+            )
+
+        return concepts
+
+
+def get_llm_provider() -> LLMProvider:
+    if settings.gemini_api_key:
+        return GeminiProvider()
+    return HeuristicProvider()
+
+
+def _build_concept_prompt(text: str) -> str:
+    return f"""
+당신은 뇌과학 기반 AI 튜터의 개념 구조화 모듈입니다.
+아래 학습 자료를 Cognitive Chunking 관점에서 분석해 핵심 개념을 5~8개 추출하세요.
+
+반드시 JSON 배열만 반환하세요. Markdown 코드블록은 쓰지 마세요.
+각 항목은 다음 필드를 가져야 합니다.
+- title: 개념명
+- description: 학습자가 이해해야 할 핵심 설명
+- difficulty: easy, medium, hard 중 하나
+- parent_title: 상위 개념이 있으면 문자열, 없으면 null
+
+학습 자료:
+{text[:12000]}
+""".strip()
+
+
+def _parse_concepts(raw_text: str) -> list[ExtractedConcept]:
+    json_text = _extract_json(raw_text)
+
+    try:
+        data = json.loads(json_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError("LLM 응답을 JSON으로 해석할 수 없습니다.") from exc
+
+    if not isinstance(data, list):
+        raise ValueError("LLM 응답은 JSON 배열이어야 합니다.")
+
+    concepts: list[ExtractedConcept] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+
+        title = str(item.get("title", "")).strip()
+        description = str(item.get("description", "")).strip()
+        difficulty = str(item.get("difficulty", "medium")).strip().lower()
+        parent_title = item.get("parent_title")
+
+        if not title or not description:
+            continue
+
+        if difficulty not in {"easy", "medium", "hard"}:
+            difficulty = "medium"
+
+        concepts.append(
+            ExtractedConcept(
+                title=title[:255],
+                description=description,
+                difficulty=difficulty,
+                parent_title=str(parent_title).strip() if parent_title else None,
+            )
+        )
+
+    if not concepts:
+        raise ValueError("추출된 개념이 없습니다.")
+
+    return concepts
+
+
+def _extract_json(raw_text: str) -> str:
+    text = raw_text.strip()
+    fence_match = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
+    if fence_match:
+        return fence_match.group(1).strip()
+
+    start = text.find("[")
+    end = text.rfind("]")
+    if start != -1 and end != -1 and end > start:
+        return text[start : end + 1]
+
+    return text
+
+
+def _candidate_chunks(text: str) -> list[str]:
+    compact = re.sub(r"\s+", " ", text).strip()
+    parts = re.split(r"(?<=[.!?。！？])\s+|\n+", compact)
+    return [part.strip() for part in parts if len(part.strip()) >= 24]
+
+
+def _make_title(chunk: str) -> str:
+    words = re.findall(r"[A-Za-z0-9가-힣_-]+", chunk)
+    if not words:
+        return "핵심 개념"
+    return " ".join(words[:5])[:80]
