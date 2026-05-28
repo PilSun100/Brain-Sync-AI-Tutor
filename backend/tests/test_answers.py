@@ -1,0 +1,72 @@
+import fitz
+from fastapi.testclient import TestClient
+
+from app.main import create_app
+
+
+def make_pdf_bytes(text: str) -> bytes:
+    document = fitz.open()
+    page = document.new_page()
+    page.insert_text((72, 72), text)
+    return document.tobytes()
+
+
+def create_question(client: TestClient) -> int:
+    upload_response = client.post(
+        "/api/materials/upload",
+        files={
+            "file": (
+                "answer-evaluation.pdf",
+                make_pdf_bytes(
+                    "Active recall strengthens memory because learners retrieve "
+                    "information before seeing the answer."
+                ),
+                "application/pdf",
+            )
+        },
+    )
+    assert upload_response.status_code == 201
+
+    material_id = upload_response.json()["id"]
+    concept_response = client.post(f"/api/materials/{material_id}/concepts/extract")
+    assert concept_response.status_code == 201
+
+    concept_id = concept_response.json()["concepts"][0]["id"]
+    question_response = client.post(f"/api/concepts/{concept_id}/questions/generate")
+    assert question_response.status_code == 201
+    return int(question_response.json()["questions"][0]["id"])
+
+
+def test_submit_answer_evaluates_and_stores_result() -> None:
+    with TestClient(create_app()) as client:
+        question_id = create_question(client)
+
+        response = client.post(
+            f"/api/questions/{question_id}/answer",
+            json={
+                "answer_text": "Active recall is retrieving information before seeing the answer.",
+                "response_time": 12.5,
+            },
+        )
+
+        body = response.json()
+        assert response.status_code == 201
+        assert body["id"] > 0
+        assert body["question_id"] == question_id
+        assert body["session_id"] > 0
+        assert 0 <= body["correctness_score"] <= 1
+        assert body["answer_text"].startswith("Active recall")
+        assert body["source"] in {"heuristic", "gemini"}
+        assert body["feedback"]
+        assert body["response_time"] == 12.5
+
+
+def test_submit_answer_returns_404_for_missing_question() -> None:
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/api/questions/999999/answer",
+            json={"answer_text": "I do not know yet."},
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "질문을 찾을 수 없습니다."

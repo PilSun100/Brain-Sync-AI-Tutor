@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.answers import router as answers_router
 from app.api.concepts import router as concepts_router
 from app.api.health import router as health_router
 from app.api.materials import router as materials_router
@@ -34,6 +35,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    app.include_router(answers_router, prefix="/api", tags=["answers"])
     app.include_router(concepts_router, prefix="/api", tags=["concepts"])
     app.include_router(health_router, prefix="/api", tags=["health"])
     app.include_router(materials_router, prefix="/api", tags=["materials"])

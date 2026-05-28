@@ -21,6 +21,14 @@ class GeneratedQuestion:
     expected_answer: str
 
 
+@dataclass(frozen=True)
+class EvaluatedAnswer:
+    correctness_score: float
+    missing_points: str
+    misconception_detected: bool
+    feedback: str
+
+
 class LLMProvider(Protocol):
     source: str
 
@@ -33,6 +41,14 @@ class LLMProvider(Protocol):
         concept_description: str,
         material_text: str,
     ) -> list[GeneratedQuestion]:
+        pass
+
+    def evaluate_answer(
+        self,
+        question_text: str,
+        expected_answer: str,
+        answer_text: str,
+    ) -> EvaluatedAnswer:
         pass
 
 
@@ -61,6 +77,21 @@ class GeminiProvider:
             _build_question_prompt(concept_title, concept_description, material_text)
         )
         return _parse_questions(response.text or "")
+
+    def evaluate_answer(
+        self,
+        question_text: str,
+        expected_answer: str,
+        answer_text: str,
+    ) -> EvaluatedAnswer:
+        import google.generativeai as genai
+
+        genai.configure(api_key=settings.gemini_api_key)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content(
+            _build_answer_evaluation_prompt(question_text, expected_answer, answer_text)
+        )
+        return _parse_answer_evaluation(response.text or "")
 
 
 class HeuristicProvider:
@@ -117,6 +148,37 @@ class HeuristicProvider:
             ),
         ]
 
+    def evaluate_answer(
+        self,
+        question_text: str,
+        expected_answer: str,
+        answer_text: str,
+    ) -> EvaluatedAnswer:
+        expected_keywords = set(_keywords(expected_answer))
+        answer_keywords = set(_keywords(answer_text))
+
+        if not expected_keywords:
+            score = 0.0
+            missing = ""
+        else:
+            matched = expected_keywords & answer_keywords
+            score = round(len(matched) / len(expected_keywords), 2)
+            missing = ", ".join(sorted(expected_keywords - answer_keywords)[:8])
+
+        misconception_detected = bool(answer_text.strip()) and score < 0.35
+        feedback = (
+            "핵심 개념을 충분히 포함했습니다."
+            if score >= 0.75
+            else "일부 핵심 개념이 빠져 있습니다. 빠진 지점을 다시 떠올려보세요."
+        )
+
+        return EvaluatedAnswer(
+            correctness_score=score,
+            missing_points=missing,
+            misconception_detected=misconception_detected,
+            feedback=feedback,
+        )
+
 
 def get_llm_provider() -> LLMProvider:
     if settings.gemini_api_key:
@@ -170,6 +232,33 @@ def _build_question_prompt(
 
 학습 자료 일부:
 {material_text[:8000]}
+""".strip()
+
+
+def _build_answer_evaluation_prompt(
+    question_text: str,
+    expected_answer: str,
+    answer_text: str,
+) -> str:
+    return f"""
+당신은 뇌과학 기반 AI 튜터의 답변 평가 모듈입니다.
+사용자 답변을 채점하되, 바로 정답을 설명하지 말고 평가 정보만 반환하세요.
+
+반드시 JSON 객체만 반환하세요. Markdown 코드블록은 쓰지 마세요.
+필드는 다음과 같습니다.
+- correctness_score: 0.0부터 1.0 사이의 숫자
+- missing_points: 빠진 핵심 개념을 짧은 문자열로 요약
+- misconception_detected: 오개념이 있으면 true, 아니면 false
+- feedback: 다음 사고를 유도하는 짧은 피드백. 정답 직접 공개 금지
+
+질문:
+{question_text}
+
+평가 기준:
+{expected_answer}
+
+사용자 답변:
+{answer_text}
 """.strip()
 
 
@@ -264,6 +353,31 @@ def _parse_questions(raw_text: str) -> list[GeneratedQuestion]:
     return questions
 
 
+def _parse_answer_evaluation(raw_text: str) -> EvaluatedAnswer:
+    json_text = _extract_object_json(raw_text)
+
+    try:
+        data = json.loads(json_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError("LLM 응답을 JSON으로 해석할 수 없습니다.") from exc
+
+    if not isinstance(data, dict):
+        raise ValueError("LLM 응답은 JSON 객체여야 합니다.")
+
+    score = data.get("correctness_score", 0)
+    try:
+        correctness_score = max(0.0, min(1.0, float(score)))
+    except (TypeError, ValueError):
+        correctness_score = 0.0
+
+    return EvaluatedAnswer(
+        correctness_score=correctness_score,
+        missing_points=str(data.get("missing_points", "")).strip(),
+        misconception_detected=bool(data.get("misconception_detected", False)),
+        feedback=str(data.get("feedback", "")).strip(),
+    )
+
+
 def _extract_json(raw_text: str) -> str:
     text = raw_text.strip()
     fence_match = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
@@ -272,6 +386,20 @@ def _extract_json(raw_text: str) -> str:
 
     start = text.find("[")
     end = text.rfind("]")
+    if start != -1 and end != -1 and end > start:
+        return text[start : end + 1]
+
+    return text
+
+
+def _extract_object_json(raw_text: str) -> str:
+    text = raw_text.strip()
+    fence_match = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
+    if fence_match:
+        return fence_match.group(1).strip()
+
+    start = text.find("{")
+    end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
         return text[start : end + 1]
 
@@ -289,3 +417,22 @@ def _make_title(chunk: str) -> str:
     if not words:
         return "핵심 개념"
     return " ".join(words[:5])[:80]
+
+
+def _keywords(text: str) -> list[str]:
+    words = re.findall(r"[A-Za-z가-힣]{2,}", text.lower())
+    stopwords = {
+        "the",
+        "and",
+        "for",
+        "that",
+        "with",
+        "this",
+        "개념",
+        "학습",
+        "설명",
+        "사용자",
+        "합니다",
+        "있습니다",
+    }
+    return [word for word in words if word not in stopwords]
