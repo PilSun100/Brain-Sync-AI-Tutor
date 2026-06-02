@@ -34,6 +34,14 @@ class GeneratedHint:
     hint_text: str
 
 
+@dataclass(frozen=True)
+class EvaluatedSelfExplanation:
+    accuracy_score: float
+    completeness_score: float
+    logical_connection_score: float
+    feedback: str
+
+
 class LLMProvider(Protocol):
     source: str
 
@@ -64,6 +72,14 @@ class LLMProvider(Protocol):
         missing_points: str,
         hint_level: int,
     ) -> GeneratedHint:
+        pass
+
+    def evaluate_self_explanation(
+        self,
+        concept_title: str,
+        concept_description: str,
+        explanation_text: str,
+    ) -> EvaluatedSelfExplanation:
         pass
 
 
@@ -130,6 +146,25 @@ class GeminiProvider:
             )
         )
         return GeneratedHint(hint_text=(response.text or "").strip())
+
+    def evaluate_self_explanation(
+        self,
+        concept_title: str,
+        concept_description: str,
+        explanation_text: str,
+    ) -> EvaluatedSelfExplanation:
+        import google.generativeai as genai
+
+        genai.configure(api_key=settings.gemini_api_key)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content(
+            _build_self_explanation_prompt(
+                concept_title,
+                concept_description,
+                explanation_text,
+            )
+        )
+        return _parse_self_explanation_evaluation(response.text or "")
 
 
 class HeuristicProvider:
@@ -234,6 +269,38 @@ class HeuristicProvider:
             5: "거의 다 왔습니다. 답변을 '무엇인가 -> 왜 중요한가 -> 어떤 결과가 생기는가' 순서로 다시 구성해보세요.",
         }
         return GeneratedHint(hint_text=templates.get(hint_level, templates[1]))
+
+    def evaluate_self_explanation(
+        self,
+        concept_title: str,
+        concept_description: str,
+        explanation_text: str,
+    ) -> EvaluatedSelfExplanation:
+        expected_keywords = set(_keywords(concept_description))
+        explanation_keywords = set(_keywords(explanation_text))
+
+        if expected_keywords:
+            accuracy = len(expected_keywords & explanation_keywords) / len(expected_keywords)
+        else:
+            accuracy = 0.0
+
+        word_count = len(_keywords(explanation_text))
+        completeness = min(1.0, word_count / 30)
+        logical_markers = {"because", "therefore", "so", "why", "그래서", "때문", "따라서", "결과"}
+        logical_connection = 1.0 if logical_markers & explanation_keywords else 0.55
+
+        feedback = (
+            "자기 설명이 핵심 개념과 잘 연결되어 있습니다."
+            if accuracy >= 0.7 and completeness >= 0.6
+            else "핵심 키워드와 원인-결과 연결을 더 분명하게 보강해보세요."
+        )
+
+        return EvaluatedSelfExplanation(
+            accuracy_score=round(accuracy, 2),
+            completeness_score=round(completeness, 2),
+            logical_connection_score=round(logical_connection, 2),
+            feedback=feedback,
+        )
 
 
 def get_llm_provider() -> LLMProvider:
@@ -359,6 +426,33 @@ def _build_hint_prompt(
 """.strip()
 
 
+def _build_self_explanation_prompt(
+    concept_title: str,
+    concept_description: str,
+    explanation_text: str,
+) -> str:
+    return f"""
+당신은 뇌과학 기반 AI 튜터의 Self-Explanation 평가 모듈입니다.
+사용자가 개념을 자신의 언어로 재구성했는지 평가하세요.
+
+반드시 JSON 객체만 반환하세요. Markdown 코드블록은 쓰지 마세요.
+필드는 다음과 같습니다.
+- accuracy_score: 0.0부터 1.0 사이의 숫자
+- completeness_score: 0.0부터 1.0 사이의 숫자
+- logical_connection_score: 0.0부터 1.0 사이의 숫자
+- feedback: 보완할 사고 방향을 짧게 제시. 정답 전체 공개 금지
+
+개념명:
+{concept_title}
+
+개념 설명:
+{concept_description}
+
+사용자 자기 설명:
+{explanation_text}
+""".strip()
+
+
 def _parse_concepts(raw_text: str) -> list[ExtractedConcept]:
     json_text = _extract_json(raw_text)
 
@@ -475,6 +569,25 @@ def _parse_answer_evaluation(raw_text: str) -> EvaluatedAnswer:
     )
 
 
+def _parse_self_explanation_evaluation(raw_text: str) -> EvaluatedSelfExplanation:
+    json_text = _extract_object_json(raw_text)
+
+    try:
+        data = json.loads(json_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError("LLM 응답을 JSON으로 해석할 수 없습니다.") from exc
+
+    if not isinstance(data, dict):
+        raise ValueError("LLM 응답은 JSON 객체여야 합니다.")
+
+    return EvaluatedSelfExplanation(
+        accuracy_score=_score(data.get("accuracy_score", 0)),
+        completeness_score=_score(data.get("completeness_score", 0)),
+        logical_connection_score=_score(data.get("logical_connection_score", 0)),
+        feedback=str(data.get("feedback", "")).strip(),
+    )
+
+
 def _extract_json(raw_text: str) -> str:
     text = raw_text.strip()
     fence_match = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
@@ -533,3 +646,10 @@ def _keywords(text: str) -> list[str]:
         "있습니다",
     }
     return [word for word in words if word not in stopwords]
+
+
+def _score(value: object) -> float:
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return 0.0
