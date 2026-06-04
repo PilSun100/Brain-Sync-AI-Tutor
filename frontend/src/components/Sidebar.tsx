@@ -1,4 +1,3 @@
-import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { BrainCircuit, BookOpen, Settings, User } from 'lucide-react';
 import './Sidebar.css';

@@ -187,12 +187,22 @@ Brain-Sync-AI-Tutor/
    - 자기 설명 평가와 숙련도 업데이트 구현
 9. `feature/session-report`
    - 학습 리포트 API와 화면 구현
-10. `feature/submission-polish`
+10. `feature/frontend-study-flow`
+    - Study Room 화면과 백엔드 API 연결
+11. `feature/submission-polish`
     - 데모 시나리오, README 보강, 최종 검증
 
 ## 실행 방법
 
-현재 단계에서는 프로젝트 계획과 프론트엔드 기본 구조가 준비되어 있습니다. 백엔드 구현 후 실행 명령은 아래와 같이 유지할 예정입니다.
+백엔드와 프론트엔드를 각각 실행합니다. 프론트엔드는 `VITE_API_BASE_URL`로 백엔드 API 주소를 바라봅니다.
+
+### Environment
+
+```bash
+cp .env.example .env
+```
+
+Gemini API 키가 없으면 로컬 fallback 로직으로 동작합니다.
 
 ### Frontend
 
@@ -201,6 +211,8 @@ cd frontend
 npm install
 npm run dev
 ```
+
+기본 접속 주소는 `http://localhost:5173`입니다.
 
 ### Backend
 
@@ -211,6 +223,8 @@ source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
+
+API 문서는 `http://localhost:8000/docs`에서 확인할 수 있습니다.
 
 ## 데모 시나리오
 

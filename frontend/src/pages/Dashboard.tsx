@@ -1,4 +1,4 @@
-import React from 'react';
+import { Link } from 'react-router-dom';
 import { PlayCircle, Activity, Award, BrainCircuit } from 'lucide-react';
 import './Dashboard.css';
 
@@ -10,10 +10,10 @@ export const Dashboard = () => {
           <h1>Welcome back, <span className="text-gradient">Seeker</span></h1>
           <p className="subtitle">Ready to synchronize your brain today?</p>
         </div>
-        <button className="glow-btn">
+        <Link className="glow-btn dashboard-start-link" to="/study">
           <PlayCircle size={20} />
           Start Session
-        </button>
+        </Link>
       </header>
 
       <section className="stats-grid">

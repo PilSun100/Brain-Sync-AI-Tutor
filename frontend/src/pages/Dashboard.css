@@ -19,6 +19,10 @@
   margin-bottom: 8px;
 }
 
+.dashboard-start-link {
+  text-decoration: none;
+}
+
 .subtitle {
   color: var(--text-secondary);
   font-size: 1.1rem;
