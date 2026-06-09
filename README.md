@@ -247,7 +247,7 @@ Gemini API 키가 없으면 로컬 fallback 로직으로 동작하지만, 실제
 docker compose up --build
 ```
 
-초기 DB migration:
+Backend 컨테이너는 시작 시 자동으로 DB migration을 적용합니다. 수동으로 migration만 실행해야 할 경우:
 
 ```bash
 docker compose exec backend alembic upgrade head

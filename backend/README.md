@@ -24,6 +24,8 @@ pip install -r requirements.txt
 ## Database
 
 Production-oriented development uses PostgreSQL with Alembic migrations.
+The Docker backend container runs `alembic upgrade head` before starting the
+API server.
 
 ```bash
 alembic upgrade head
