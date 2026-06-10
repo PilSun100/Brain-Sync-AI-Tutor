@@ -19,6 +19,7 @@
 → Level 1~5 힌트 요청
 → 자기 설명 평가
 → 세션 리포트 조회
+→ Daily Review 및 개인화 Dashboard 확인
 ```
 
 Gemini API 키가 없으면 로컬 fallback 로직으로 동작하므로, API 키 없이도 과제 시연과 테스트가 가능합니다.
@@ -185,6 +186,8 @@ Brain-Sync-AI-Tutor/
   docs/
     project-plan.md
     demo-scenario.md
+    report-outline.md
+    submission-checklist.md
 ```
 
 ## 주요 API
@@ -224,9 +227,9 @@ Brain-Sync-AI-Tutor/
 - `SelfExplanation`: 자기 설명과 평가 결과
 - `ConceptMastery`: 개념별 숙련도, 인지 부하, 자신감, 힌트 의존도, 다음 난이도, 다음 복습 시점
 
-## 개발 순서
+## 개발 히스토리
 
-기능별 브랜치와 커밋을 남기며 순차적으로 개발합니다.
+기능별 브랜치와 커밋을 남기며 순차적으로 개발합니다. 초기 MVP 브랜치 이후 실제 서비스 확장 방향에 맞춰 한글 브랜치명과 한글 커밋 메시지를 사용합니다.
 
 1. `feature/project-setup`
    - README, 문서, 환경변수 예시, Git ignore 규칙 작성
@@ -252,6 +255,24 @@ Brain-Sync-AI-Tutor/
     - 데모 시나리오, README 보강, 최종 검증
 12. `feature/adaptive-learning-engine`
     - 사용자 수준 추정, 맞춤 설명, 다음 질문 난이도 추천 구현
+13. `기능/근거검색기반`
+    - page-aware chunk, evidence logging, RAG-lite 기반 평가 구현
+14. `기반/서비스인프라`
+    - PostgreSQL, Alembic, Docker, CI 기반 정리
+15. `기능/사용자인증`
+    - 이메일/비밀번호 인증, JWT, refresh token, 사용자별 데이터 격리 구현
+16. `기능/벡터검색고도화`
+    - chunk embedding 저장과 hybrid retrieval 구조 구현
+17. `기능/학습프로필`
+    - 사용자 학습 프로필과 추천 학습법 구현
+18. `기능/일일복습`
+    - Daily Review API와 화면 구현
+19. `화면/개인화대시보드`
+    - 실제 데이터 기반 개인화 Dashboard 구현
+20. `화면/학습룸개인화`
+    - Study Room 개인화 모드, 권장 난이도, hint ladder 표시 강화
+21. `문서/제출시연정리`
+    - 시연 시나리오, 체크리스트, 보고서 개요 정리
 
 ## 실행 방법
 
