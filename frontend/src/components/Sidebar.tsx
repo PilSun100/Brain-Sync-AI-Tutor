@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { BrainCircuit, BookOpen, CalendarClock, LogOut, User } from 'lucide-react';
+import { BrainCircuit, BookOpen, CalendarClock, LogOut, MessageSquareText, User } from 'lucide-react';
 import { useAuth } from '../auth/useAuth';
 import './Sidebar.css';
 
@@ -20,6 +20,10 @@ export const Sidebar = () => {
         <NavLink to="/study" className={({isActive}) => isActive ? "nav-item active" : "nav-item"}>
           <BookOpen size={20} />
           <span>Study Room</span>
+        </NavLink>
+        <NavLink to="/chat" className={({isActive}) => isActive ? "nav-item active" : "nav-item"}>
+          <MessageSquareText size={20} />
+          <span>Tutor Chat</span>
         </NavLink>
         <NavLink to="/review" className={({isActive}) => isActive ? "nav-item active" : "nav-item"}>
           <CalendarClock size={20} />
