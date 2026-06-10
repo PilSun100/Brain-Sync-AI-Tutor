@@ -49,6 +49,24 @@ export type LearningProfileResponse = {
   updated_at: string;
 };
 
+export type DailyReviewItem = {
+  concept_id: number;
+  concept_title: string;
+  reason: string;
+  priority: 'high' | 'medium' | 'low';
+  recommended_method: string;
+  estimated_minutes: number;
+  next_review_at: string | null;
+  mastery_level: number;
+  forgetting_risk: number;
+};
+
+export type DailyReviewResponse = {
+  review_items: DailyReviewItem[];
+  estimated_total_minutes: number;
+  generated_at: string;
+};
+
 export type Concept = {
   id: number;
   material_id: number;

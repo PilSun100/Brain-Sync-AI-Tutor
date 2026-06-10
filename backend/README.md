@@ -24,6 +24,10 @@ It also stores a user learning profile. The profile aggregates recall score,
 self-explanation quality, hint dependency, misconception frequency, frustration
 risk, weak concepts, and the recommended next learning method.
 
+Daily review recommendations are available for spaced reinforcement. The API
+prioritizes concepts by due review time, forgetting risk, misconceptions, weak
+mastery, and hint dependency.
+
 ## Setup
 
 ```bash
@@ -61,6 +65,7 @@ API docs are available at `http://localhost:8000/docs`.
 - `POST /api/auth/refresh`
 - `GET /api/auth/me`
 - `GET /api/profile/learning`
+- `GET /api/reviews/daily`
 - `POST /api/materials/upload`
 - `POST /api/materials/{material_id}/concepts/extract`
 - `POST /api/concepts/{concept_id}/questions/generate`
