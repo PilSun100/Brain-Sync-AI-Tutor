@@ -329,12 +329,12 @@ export const StudyRoom = () => {
     <div className="study-room">
       <header className="study-header">
         <div>
-          <h1>Brain Training Session</h1>
+          <h1>학습실</h1>
           <p className="subtitle">PDF에서 개념을 꺼내고, 답변과 힌트로 기억 회로를 훈련합니다.</p>
         </div>
         <div className="status-pill">
           <BrainCircuit size={18} />
-          {loadingLabel || 'Ready'}
+          {loadingLabel || '준비됨'}
         </div>
       </header>
 
@@ -570,7 +570,7 @@ export const StudyRoom = () => {
                 className={`hint-step ${hints.length >= level ? 'done' : currentHintLevel === level && answer ? 'current' : ''}`}
                 key={level}
               >
-                <span>Hint {level}</span>
+                <span>힌트 {level}</span>
                 <strong>{hintLevelLabels[level]}</strong>
               </div>
             ))}

@@ -223,7 +223,7 @@ export function TutorChat() {
             {messages.map((message) => (
               <article className={`chat-turn ${message.role}`} key={message.id}>
                 <div className="chat-bubble">
-                  <span>{message.role === 'user' ? '나' : 'Brain-Sync Tutor'}</span>
+                  <span>{message.role === 'user' ? '나' : 'AI 튜터'}</span>
                   <p>{message.content}</p>
                 </div>
 

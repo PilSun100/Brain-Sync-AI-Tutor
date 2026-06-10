@@ -6,6 +6,7 @@ import {
   CalendarClock,
   Gauge,
   Lightbulb,
+  MessageSquareText,
   PlayCircle,
   RefreshCcw,
   ShieldAlert,
@@ -91,6 +92,10 @@ export const Dashboard = () => {
           <Link className="ghost-link" to="/review">
             <CalendarClock size={18} />
             오늘 복습
+          </Link>
+          <Link className="ghost-link" to="/chat">
+            <MessageSquareText size={18} />
+            튜터 채팅
           </Link>
           <Link className="glow-btn dashboard-start-link" to="/study">
             <PlayCircle size={20} />
@@ -253,7 +258,7 @@ export const Dashboard = () => {
           <div className="section-heading compact">
             <CalendarClock size={20} />
             <div>
-              <h2>Review Schedule</h2>
+              <h2>복습 일정</h2>
               <p>망각 위험과 다음 복습 시점을 기준으로 정렬됩니다.</p>
             </div>
           </div>
@@ -276,7 +281,7 @@ export const Dashboard = () => {
         <div className="section-heading compact">
           <Target size={20} />
           <div>
-            <h2>Recent Sessions</h2>
+            <h2>최근 학습 세션</h2>
             <p>최근 세션의 답변 품질과 오개념 발생을 추적합니다.</p>
           </div>
         </div>

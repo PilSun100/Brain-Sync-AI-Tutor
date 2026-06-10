@@ -1,5 +1,5 @@
 .tutor-chat-page {
-  padding: 32px;
+  padding: 36px 40px;
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -28,17 +28,17 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  border: 1px solid rgba(248, 113, 113, 0.35);
+  border: 1px solid rgba(185, 28, 28, 0.28);
   border-radius: 8px;
-  background: rgba(127, 29, 29, 0.22);
-  color: #fecaca;
+  background: var(--danger-soft);
+  color: var(--danger);
   padding: 14px 16px;
 }
 
 .tutor-chat-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
-  gap: 24px;
+  grid-template-columns: minmax(300px, 370px) minmax(0, 1fr);
+  gap: 20px;
   min-height: 0;
 }
 
@@ -74,7 +74,7 @@
 .chat-material-item {
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-quiet);
   color: var(--text-primary);
   padding: 14px;
   text-align: left;
@@ -88,7 +88,7 @@
 .chat-material-item:hover,
 .chat-material-item.active {
   border-color: var(--accent);
-  background: rgba(20, 184, 166, 0.08);
+  background: var(--accent-soft);
 }
 
 .chat-material-item strong,
@@ -147,10 +147,10 @@
 }
 
 .chat-mode-pill {
-  border: 1px solid rgba(20, 184, 166, 0.35);
+  border: 1px solid var(--border-highlight);
   border-radius: 999px;
   color: var(--accent);
-  background: rgba(20, 184, 166, 0.08);
+  background: var(--primary-soft);
   padding: 8px 12px;
   white-space: nowrap;
 }
@@ -197,7 +197,7 @@
 .chat-suggestions button {
   border: 1px solid var(--border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-surface);
   color: var(--text-primary);
   padding: 9px 13px;
   cursor: pointer;
@@ -224,13 +224,13 @@
   max-width: min(720px, 88%);
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-quiet);
   padding: 14px 16px;
 }
 
 .chat-turn.user .chat-bubble {
   border-color: rgba(96, 165, 250, 0.42);
-  background: rgba(96, 165, 250, 0.12);
+  background: var(--secondary-soft);
 }
 
 .chat-bubble span {
@@ -254,9 +254,9 @@
 }
 
 .chat-recommendation {
-  border: 1px solid rgba(45, 212, 191, 0.28);
+  border: 1px solid var(--border-highlight);
   border-radius: 8px;
-  background: rgba(45, 212, 191, 0.08);
+  background: var(--primary-soft);
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
@@ -276,7 +276,7 @@
 .chat-evidence-empty {
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-quiet);
   padding: 12px 14px;
 }
 
@@ -309,7 +309,7 @@
 .chat-input-bar input {
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-quiet);
   color: var(--text-primary);
   min-height: 48px;
   padding: 0 14px;
