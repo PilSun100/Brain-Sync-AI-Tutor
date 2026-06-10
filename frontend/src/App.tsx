@@ -3,6 +3,7 @@ import { AuthProvider } from './auth/AuthContext';
 import { ProtectedRoute } from './auth/ProtectedRoute';
 import { MainLayout } from './layouts/MainLayout';
 import { AuthPage } from './pages/AuthPage';
+import { DailyReview } from './pages/DailyReview';
 import { Dashboard } from './pages/Dashboard';
 import { StudyRoom } from './pages/StudyRoom';
 import './App.css';
@@ -17,6 +18,7 @@ function App() {
             <Route path="/" element={<MainLayout />}>
               <Route index element={<Dashboard />} />
               <Route path="study" element={<StudyRoom />} />
+              <Route path="review" element={<DailyReview />} />
               <Route path="profile" element={<div style={{padding: 32}}><h2>Profile</h2><p className="subtitle">Coming soon...</p></div>} />
             </Route>
           </Route>
