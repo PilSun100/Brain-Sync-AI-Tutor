@@ -121,7 +121,6 @@
 }
 
 .study-start-panel,
-.stuck-panel,
 .feedback-panel {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -371,35 +370,6 @@
   flex-wrap: wrap;
 }
 
-.stuck-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.stuck-option {
-  min-height: 54px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-quiet);
-  color: var(--text-primary);
-  padding: 10px;
-  font: inherit;
-  font-weight: 700;
-  cursor: pointer;
-  transition: var(--transition);
-}
-
-.stuck-option:hover:not(:disabled) {
-  border-color: var(--secondary);
-  background: var(--secondary-soft);
-}
-
-.stuck-option:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
 .support-card {
   border-left: 4px solid var(--accent);
   border-radius: 8px;
@@ -491,7 +461,6 @@
 }
 
 @media (max-width: 1180px) {
-  .stuck-grid,
   .feedback-summary,
   .result-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -529,7 +498,6 @@
     font-size: 1.15rem;
   }
 
-  .stuck-grid,
   .feedback-summary,
   .result-metrics {
     grid-template-columns: 1fr;

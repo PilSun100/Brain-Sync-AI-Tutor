@@ -7,7 +7,6 @@ import {
   FileUp,
   HelpCircle,
   Loader2,
-  MessageSquareText,
   Send,
   Sparkles,
 } from 'lucide-react';
@@ -40,13 +39,6 @@ const tierDescriptions: Record<string, string> = {
   탐구자: '개념 간 관계를 연결하고 비교할 수 있습니다.',
   현자: '힌트 없이 깊이 있게 설명할 수 있습니다.',
 };
-
-const stuckOptions = [
-  { label: '단어가 기억나지 않아요', reason: 'forgot_word' },
-  { label: '개념은 아는데 설명이 안 돼요', reason: 'cannot_explain' },
-  { label: '질문이 이해되지 않아요', reason: 'question_unclear' },
-  { label: '두 개념이 헷갈려요', reason: 'confusing_concepts' },
-];
 
 const formatPercent = (value: number) => `${Math.round(value)}점`;
 
@@ -162,8 +154,8 @@ export const StudyRoom = () => {
       await beginStudy(materialId);
     });
 
-  const handleRequestHint = (stuckReason?: string) =>
-    runAction(stuckReason ? '막힌 지점 분석 중' : '힌트 생성 중', async () => {
+  const handleRequestHint = () =>
+    runAction('힌트 생성 중', async () => {
       if (!activeQuestion || !sessionId || !activeItem) {
         throw new Error('먼저 학습할 개념을 준비하세요.');
       }
@@ -172,7 +164,6 @@ export const StudyRoom = () => {
         activeQuestion.id,
         sessionId,
         activeHints.length + 1,
-        stuckReason,
       );
       setHintsByQuestion((current) => ({
         ...current,
@@ -393,28 +384,6 @@ export const StudyRoom = () => {
                   </button>
                 </div>
               </section>
-
-              {!activeAnswer && (
-                <section className="stuck-panel">
-                  <div className="panel-title">
-                    <MessageSquareText size={19} />
-                    <h2>막혔나요?</h2>
-                  </div>
-                  <div className="stuck-grid">
-                    {stuckOptions.map((option) => (
-                      <button
-                        className="stuck-option"
-                        disabled={!canUseHint || Boolean(loadingLabel)}
-                        key={option.reason}
-                        onClick={() => handleRequestHint(option.reason)}
-                        type="button"
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              )}
 
               {activeHints.length > 0 && (
                 <section className="support-list">
