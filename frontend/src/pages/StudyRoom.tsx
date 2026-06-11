@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
-  BrainCircuit,
   CheckCircle2,
   FileText,
   FileUp,
@@ -10,132 +9,87 @@ import {
   Loader2,
   MessageSquareText,
   Send,
+  Sparkles,
 } from 'lucide-react';
 import {
   getMaterials,
+  requestQuestionHint,
   startMaterialStudy,
   submitAnswer,
-  submitSelfExplanation,
   uploadMaterial,
 } from '../api/client';
 import type {
   AnswerEvaluationResponse,
-  Concept,
+  HintResponse,
+  MaterialMasterySummary,
   MaterialSummary,
-  Question,
-  SelfExplanationResponse,
+  StudyConceptItem,
 } from '../types/api';
 import './StudyRoom.css';
 
-const HINT_BUDGET = 5;
-
-type SupportEntry = {
-  id: string;
-  label: string;
-  text: string;
+const difficultyLabels: Record<string, string> = {
+  easy: '쉬움',
+  medium: '보통',
+  hard: '어려움',
 };
 
-type SessionAnswer = {
-  score: number;
-  misconception: boolean;
-  hintsUsed: number;
+const tierDescriptions: Record<string, string> = {
+  초심자: '개념의 윤곽을 잡는 중입니다.',
+  견습생: '힌트를 통해 핵심을 떠올릴 수 있습니다.',
+  숙련자: '개념을 자기 말로 설명할 수 있습니다.',
+  탐구자: '개념 간 관계를 연결하고 비교할 수 있습니다.',
+  현자: '힌트 없이 깊이 있게 설명할 수 있습니다.',
 };
 
-type StuckOption = {
-  label: string;
-  build: (concept: Concept, question: Question) => string;
-};
-
-const questionTypeLabels: Record<string, string> = {
-  definition: '개념 회상',
-  comparison: '비교 설명',
-  cause_effect: '원인과 결과',
-  example: '예시 만들기',
-  application: '적용하기',
-  misconception: '오개념 점검',
-  misconception_check: '오개념 점검',
-};
-
-const stuckOptions: StuckOption[] = [
-  {
-    label: '단어가 기억나지 않아요',
-    build: (concept: Concept, question: Question) =>
-      `키워드 단서: ${keywordCue(concept, question)}. 이 단어가 질문에서 어떤 역할을 하는지 먼저 떠올려보세요.`,
-  },
-  {
-    label: '개념은 아는데 설명이 안 돼요',
-    build: (concept: Concept) =>
-      `문장 시작: "${concept.title}은/는 ..."으로 시작한 뒤, 왜 중요한지 한 문장을 덧붙여보세요.`,
-  },
-  {
-    label: '질문이 이해되지 않아요',
-    build: (_concept: Concept, question: Question) =>
-      `질문을 더 작게 나누면: "${question.question_text}"에서 먼저 묻는 대상과 설명해야 할 관계를 분리해보세요.`,
-  },
-  {
-    label: '두 개념이 헷갈려요',
-    build: (concept: Concept) =>
-      `${concept.title}과/와 헷갈리는 개념을 하나 적고, "공통점 1개, 차이점 1개"만 먼저 비교해보세요.`,
-  },
+const stuckOptions = [
+  { label: '단어가 기억나지 않아요', reason: 'forgot_word' },
+  { label: '개념은 아는데 설명이 안 돼요', reason: 'cannot_explain' },
+  { label: '질문이 이해되지 않아요', reason: 'question_unclear' },
+  { label: '두 개념이 헷갈려요', reason: 'confusing_concepts' },
 ];
 
-const formatPercent = (value: number) => `${Math.round(value * 100)}%`;
+const formatPercent = (value: number) => `${Math.round(value)}점`;
 
-function keywordCue(concept: Concept, question: Question): string {
-  const source = `${concept.title} ${concept.description} ${question.question_text}`;
-  const tokens = source
-    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
-    .split(/\s+/)
-    .filter((token) => token.length >= 3);
-
-  return tokens.slice(0, 3).join(', ') || concept.title;
-}
-
-function buildHint(level: number, concept: Concept, question: Question): string {
-  const cue = keywordCue(concept, question);
-  const typeLabel = questionTypeLabels[question.question_type] ?? question.question_type;
-  const templates: Record<number, string> = {
-    1: `작은 방향만 볼게요. 이 질문은 ${typeLabel} 문제이고, 먼저 "${concept.title}"의 핵심 역할을 떠올리면 됩니다.`,
-    2: `관련 개념 단서: ${cue}. 이 단어들이 서로 어떤 순서나 관계로 이어지는지 생각해보세요.`,
-    3: '답변 구조를 잡아보세요. "무엇인가 → 왜 중요한가 → 어떤 결과가 생기는가" 순서로 한 문장씩 쓰면 됩니다.',
-    4: `조금 더 강한 발판입니다. ${concept.title}을/를 설명할 때 빠지면 안 되는 조건이나 비교 지점을 하나 적어보세요.`,
-    5: '거의 다 왔습니다. 정답을 보기 전에 핵심 키워드 2개를 넣어 짧은 설명문으로 다시 구성해보세요.',
-  };
-
-  return templates[level] ?? templates[1];
+function materialProgress(items: StudyConceptItem[]) {
+  const completed = items.filter((item) => item.completed).length;
+  return `${completed} / ${items.length}`;
 }
 
 export const StudyRoom = () => {
   const [materials, setMaterials] = useState<MaterialSummary[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [material, setMaterial] = useState<MaterialSummary | null>(null);
-  const [concept, setConcept] = useState<Concept | null>(null);
-  const [questions, setQuestions] = useState<Question[]>([]);
-  const [questionIndex, setQuestionIndex] = useState(0);
   const [sessionId, setSessionId] = useState<number | null>(null);
+  const [studyItems, setStudyItems] = useState<StudyConceptItem[]>([]);
+  const [activeIndex, setActiveIndex] = useState(0);
   const [answerText, setAnswerText] = useState('');
   const [answerStartedAt, setAnswerStartedAt] = useState<number | null>(null);
-  const [answer, setAnswer] = useState<AnswerEvaluationResponse | null>(null);
-  const [selfExplanationText, setSelfExplanationText] = useState('');
-  const [selfExplanation, setSelfExplanation] = useState<SelfExplanationResponse | null>(null);
-  const [supportEntries, setSupportEntries] = useState<SupportEntry[]>([]);
-  const [supportUsedTotal, setSupportUsedTotal] = useState(0);
-  const [sessionAnswers, setSessionAnswers] = useState<SessionAnswer[]>([]);
-  const [sessionComplete, setSessionComplete] = useState(false);
+  const [answersByQuestion, setAnswersByQuestion] = useState<Record<number, AnswerEvaluationResponse>>({});
+  const [hintsByQuestion, setHintsByQuestion] = useState<Record<number, HintResponse[]>>({});
+  const [materialMastery, setMaterialMastery] = useState<MaterialMasterySummary | null>(null);
   const [loadingLabel, setLoadingLabel] = useState('');
   const [error, setError] = useState('');
 
-  const activeQuestion = questions[questionIndex] ?? null;
-  const questionSupportUsed = supportEntries.length;
-  const remainingHints = Math.max(0, HINT_BUDGET - supportUsedTotal);
-  const canUseSupport = Boolean(concept && activeQuestion && !answer && remainingHints > 0 && !sessionComplete);
-  const progressLabel = questions.length > 0 ? `${Math.min(questionIndex + 1, questions.length)} / ${questions.length}` : '0 / 0';
-  const averageScore = useMemo(() => {
-    if (sessionAnswers.length === 0) {
-      return 0;
-    }
-    return sessionAnswers.reduce((sum, item) => sum + item.score, 0) / sessionAnswers.length;
-  }, [sessionAnswers]);
+  const activeItem = studyItems[activeIndex] ?? null;
+  const activeQuestion = activeItem?.question ?? null;
+  const activeHints = activeQuestion ? hintsByQuestion[activeQuestion.id] ?? [] : [];
+  const activeAnswer = activeQuestion ? answersByQuestion[activeQuestion.id] ?? null : null;
+  const completedCount = studyItems.filter((item) => item.completed).length;
+  const sessionComplete = studyItems.length > 0 && completedCount === studyItems.length;
+  const remainingHints = activeItem ? Math.max(0, activeItem.hint_budget - activeHints.length) : 0;
+  const canUseHint = Boolean(activeItem && activeQuestion && sessionId && !activeAnswer && remainingHints > 0);
+  const displayScore = materialMastery?.material_score ?? 0;
+  const displayTier = materialMastery?.tier_name ?? '초심자';
+  const nextTierLine = tierDescriptions[displayTier] ?? '자료 이해도를 계산하는 중입니다.';
+
+  const groupedItems = useMemo(
+    () => ({
+      easy: studyItems.filter((item) => item.difficulty === 'easy'),
+      medium: studyItems.filter((item) => item.difficulty === 'medium'),
+      hard: studyItems.filter((item) => item.difficulty === 'hard'),
+    }),
+    [studyItems],
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -175,18 +129,13 @@ export const StudyRoom = () => {
   const beginStudy = async (materialId: number) => {
     const response = await startMaterialStudy(materialId);
     setMaterial(response.material);
-    setConcept(response.concept);
-    setQuestions(response.questions);
-    setQuestionIndex(0);
-    setSessionId(null);
+    setSessionId(response.session_id);
+    setStudyItems(response.concepts.map((item) => ({ ...item, completed: false })));
+    setActiveIndex(0);
     setAnswerText('');
-    setAnswer(null);
-    setSelfExplanationText('');
-    setSelfExplanation(null);
-    setSupportEntries([]);
-    setSupportUsedTotal(0);
-    setSessionAnswers([]);
-    setSessionComplete(false);
+    setAnswersByQuestion({});
+    setHintsByQuestion({});
+    setMaterialMastery(response.material_mastery);
     setAnswerStartedAt(Date.now());
   };
 
@@ -213,42 +162,27 @@ export const StudyRoom = () => {
       await beginStudy(materialId);
     });
 
-  const useHint = () => {
-    if (!concept || !activeQuestion || !canUseSupport) {
-      return;
-    }
+  const handleRequestHint = (stuckReason?: string) =>
+    runAction(stuckReason ? '막힌 지점 분석 중' : '힌트 생성 중', async () => {
+      if (!activeQuestion || !sessionId || !activeItem) {
+        throw new Error('먼저 학습할 개념을 준비하세요.');
+      }
 
-    const level = supportUsedTotal + 1;
-    setSupportEntries((current) => [
-      ...current,
-      {
-        id: `hint-${Date.now()}`,
-        label: `힌트 ${level}`,
-        text: buildHint(level, concept, activeQuestion),
-      },
-    ]);
-    setSupportUsedTotal((current) => current + 1);
-  };
-
-  const useStuckOption = (option: (typeof stuckOptions)[number]) => {
-    if (!concept || !activeQuestion || !canUseSupport) {
-      return;
-    }
-
-    setSupportEntries((current) => [
-      ...current,
-      {
-        id: `stuck-${Date.now()}`,
-        label: option.label,
-        text: option.build(concept, activeQuestion),
-      },
-    ]);
-    setSupportUsedTotal((current) => current + 1);
-  };
+      const hint = await requestQuestionHint(
+        activeQuestion.id,
+        sessionId,
+        activeHints.length + 1,
+        stuckReason,
+      );
+      setHintsByQuestion((current) => ({
+        ...current,
+        [activeQuestion.id]: [...(current[activeQuestion.id] ?? []), hint],
+      }));
+    });
 
   const handleSubmitAnswer = () =>
     runAction('답변 평가 중', async () => {
-      if (!activeQuestion) {
+      if (!activeQuestion || !activeItem) {
         throw new Error('먼저 질문을 준비하세요.');
       }
       if (!answerText.trim()) {
@@ -257,51 +191,58 @@ export const StudyRoom = () => {
 
       const responseTime = answerStartedAt ? (Date.now() - answerStartedAt) / 1000 : undefined;
       const evaluated = await submitAnswer(activeQuestion.id, answerText, responseTime, sessionId);
-      setAnswer(evaluated);
-      setSessionId(evaluated.session_id);
-      setSessionAnswers((current) => [
-        ...current,
-        {
-          score: evaluated.correctness_score,
-          misconception: evaluated.misconception_detected,
-          hintsUsed: questionSupportUsed,
-        },
-      ]);
-    });
-
-  const handleSubmitSelfExplanation = () =>
-    runAction('설명 평가 중', async () => {
-      if (!concept) {
-        throw new Error('개념을 먼저 준비하세요.');
+      setAnswersByQuestion((current) => ({ ...current, [activeQuestion.id]: evaluated }));
+      setStudyItems((current) =>
+        current.map((item) =>
+          item.question.id === activeQuestion.id
+            ? {
+                ...item,
+                completed: true,
+                concept_score: evaluated.concept_score,
+                tier_name: evaluated.concept_tier,
+              }
+            : item,
+        ),
+      );
+      if (
+        evaluated.material_score !== null &&
+        evaluated.material_tier &&
+        evaluated.material_completed_concepts !== null &&
+        evaluated.material_total_concepts !== null
+      ) {
+        setMaterialMastery({
+          material_score: evaluated.material_score,
+          tier_name: evaluated.material_tier,
+          completed_concepts: evaluated.material_completed_concepts,
+          total_concepts: evaluated.material_total_concepts,
+        });
       }
-      if (selfExplanationText.trim().length < 10) {
-        throw new Error('자기 설명은 10자 이상 입력하세요.');
-      }
-
-      const evaluated = await submitSelfExplanation(concept.id, selfExplanationText);
-      setSelfExplanation(evaluated);
     });
 
   const moveNext = () => {
-    if (questionIndex + 1 >= questions.length) {
-      setSessionComplete(true);
+    const nextIndex = studyItems.findIndex((item, index) => index > activeIndex && !item.completed);
+    if (nextIndex >= 0) {
+      setActiveIndex(nextIndex);
+      setAnswerText('');
+      setAnswerStartedAt(Date.now());
       return;
     }
 
-    setQuestionIndex((current) => current + 1);
-    setAnswerText('');
-    setAnswer(null);
-    setSelfExplanationText('');
-    setSelfExplanation(null);
-    setSupportEntries([]);
-    setAnswerStartedAt(Date.now());
+    const firstIncomplete = studyItems.findIndex((item) => !item.completed);
+    if (firstIncomplete >= 0) {
+      setActiveIndex(firstIncomplete);
+      setAnswerText('');
+      setAnswerStartedAt(Date.now());
+    }
   };
 
-  const startOver = () => {
-    if (!material) {
-      return;
+  const selectConcept = (questionId: number) => {
+    const index = studyItems.findIndex((item) => item.question.id === questionId);
+    if (index >= 0) {
+      setActiveIndex(index);
+      setAnswerText('');
+      setAnswerStartedAt(Date.now());
     }
-    void handleStartExisting(material.id);
   };
 
   return (
@@ -309,10 +250,10 @@ export const StudyRoom = () => {
       <header className="study-header">
         <div>
           <h1>Study</h1>
-          <p className="subtitle">자료를 읽기 전에 먼저 기억에서 꺼내보는 능동 회상 학습실입니다.</p>
+          <p className="subtitle">강의자료의 모든 개념을 네 말로 설명하고, 힌트 사용량과 정확도로 티어를 올립니다.</p>
         </div>
         <div className="status-pill">
-          {loadingLabel ? <Loader2 size={18} className="spin-icon" /> : <BrainCircuit size={18} />}
+          {loadingLabel ? <Loader2 size={18} className="spin-icon" /> : <img alt="SYNAPTOR" className="status-brand-mark" src="/synaptor-mark.png" />}
           {loadingLabel || '준비됨'}
         </div>
       </header>
@@ -331,16 +272,20 @@ export const StudyRoom = () => {
             <strong>{material?.title ?? '자료를 선택하세요'}</strong>
           </div>
           <div>
-            <span>진행</span>
-            <strong>{progressLabel}</strong>
+            <span>자료 티어</span>
+            <strong>{displayTier}</strong>
           </div>
           <div>
-            <span>남은 힌트</span>
-            <strong>{remainingHints} / {HINT_BUDGET}</strong>
+            <span>진행</span>
+            <strong>{materialProgress(studyItems)}</strong>
+          </div>
+          <div>
+            <span>자료 점수</span>
+            <strong>{formatPercent(displayScore)}</strong>
           </div>
         </div>
 
-        {!activeQuestion && (
+        {!activeItem && (
           <div className="study-start-grid">
             <section className="study-start-panel">
               <div className="panel-title">
@@ -386,161 +331,178 @@ export const StudyRoom = () => {
           </div>
         )}
 
-        {activeQuestion && !sessionComplete && (
-          <div className="recall-flow">
-            <section className="question-card">
-              <div className="question-meta-row">
-                <span>{questionTypeLabels[activeQuestion.question_type] ?? activeQuestion.question_type}</span>
-                <span>{concept?.title}</span>
-              </div>
-              <h2>{activeQuestion.question_text}</h2>
-            </section>
-
-            <section className="answer-block">
-              <textarea
-                className="answer-input"
-                disabled={Boolean(answer)}
-                placeholder="정답을 보기 전에 기억에서 직접 꺼낸 답을 적어보세요."
-                value={answerText}
-                onChange={(event) => setAnswerText(event.target.value)}
-              />
-              <div className="action-row">
-                <button className="secondary-btn" disabled={!canUseSupport} onClick={useHint} type="button">
-                  <HelpCircle size={18} />
-                  Hint
-                </button>
-                <button
-                  className="glow-btn"
-                  disabled={!answerText.trim() || Boolean(answer) || Boolean(loadingLabel)}
-                  onClick={handleSubmitAnswer}
-                  type="button"
-                >
-                  <Send size={18} />
-                  답변 제출
-                </button>
-              </div>
-            </section>
-
-            {!answer && (
-              <section className="stuck-panel">
-                <div className="panel-title">
-                  <MessageSquareText size={19} />
-                  <h2>막혔나요?</h2>
-                </div>
-                <div className="stuck-grid">
-                  {stuckOptions.map((option) => (
+        {activeItem && !sessionComplete && (
+          <div className="study-workspace">
+            <aside className="concept-rail">
+              {(['easy', 'medium', 'hard'] as const).map((difficulty) => (
+                <div className="concept-group" key={difficulty}>
+                  <h2>{difficultyLabels[difficulty]}</h2>
+                  {groupedItems[difficulty].length === 0 && <p className="muted">개념 없음</p>}
+                  {groupedItems[difficulty].map((item) => (
                     <button
-                      className="stuck-option"
-                      disabled={!canUseSupport}
-                      key={option.label}
-                      onClick={() => useStuckOption(option)}
+                      className={`concept-rank-item ${item.question.id === activeQuestion?.id ? 'active' : ''} ${item.completed ? 'done' : ''}`}
+                      key={item.question.id}
+                      onClick={() => selectConcept(item.question.id)}
                       type="button"
                     >
-                      {option.label}
+                      <span>{item.concept.title}</span>
+                      <strong>{item.tier_name}</strong>
                     </button>
                   ))}
                 </div>
-              </section>
-            )}
+              ))}
+            </aside>
 
-            {supportEntries.length > 0 && (
-              <section className="support-list">
-                {supportEntries.map((entry) => (
-                  <article className="support-card" key={entry.id}>
-                    <span>{entry.label}</span>
-                    <p>{entry.text}</p>
-                  </article>
-                ))}
-              </section>
-            )}
-
-            {answer && (
-              <section className="feedback-panel">
-                <div className="feedback-summary">
-                  <div>
-                    <span>회상 정확도</span>
-                    <strong>{formatPercent(answer.correctness_score)}</strong>
-                  </div>
-                  <div>
-                    <span>오개념 위험</span>
-                    <strong>{answer.misconception_detected ? '있음' : '낮음'}</strong>
-                  </div>
+            <div className="recall-flow">
+              <section className="question-card">
+                <div className="question-meta-row">
+                  <span>{difficultyLabels[activeItem.difficulty] ?? activeItem.difficulty}</span>
+                  <span>힌트 {remainingHints} / {activeItem.hint_budget}</span>
+                  <span>{activeItem.tier_name}</span>
                 </div>
-                <div className="short-feedback">
-                  <CheckCircle2 size={20} />
-                  <p>{answer.feedback}</p>
-                </div>
-                {answer.missing_points && (
-                  <p className="missing-point">보완할 지점: {answer.missing_points}</p>
-                )}
+                <h2>{activeItem.concept.title}</h2>
+                <p>{activeQuestion?.question_text}</p>
               </section>
-            )}
 
-            {answer && (
-              <section className="self-explain-panel">
-                <h2>이 개념을 자신의 말로 설명해보세요</h2>
+              <section className="answer-block">
                 <textarea
-                  className="answer-input small"
-                  placeholder="예: 이 개념은 ... 때문에 중요하고, ...와 연결됩니다."
-                  value={selfExplanationText}
-                  onChange={(event) => setSelfExplanationText(event.target.value)}
+                  className="answer-input"
+                  disabled={Boolean(activeAnswer)}
+                  placeholder="자료를 보지 않고, 이 개념을 네 말로 설명해보세요."
+                  value={answerText}
+                  onChange={(event) => setAnswerText(event.target.value)}
                 />
                 <div className="action-row">
                   <button
                     className="secondary-btn"
-                    disabled={selfExplanationText.trim().length < 10 || Boolean(selfExplanation) || Boolean(loadingLabel)}
-                    onClick={handleSubmitSelfExplanation}
+                    disabled={!canUseHint || Boolean(loadingLabel)}
+                    onClick={() => handleRequestHint()}
+                    type="button"
+                  >
+                    <HelpCircle size={18} />
+                    Hint
+                  </button>
+                  <button
+                    className="glow-btn"
+                    disabled={!answerText.trim() || Boolean(activeAnswer) || Boolean(loadingLabel)}
+                    onClick={handleSubmitAnswer}
                     type="button"
                   >
                     <Send size={18} />
                     설명 제출
                   </button>
-                  <button
-                    className="glow-btn"
-                    disabled={!selfExplanation || Boolean(loadingLabel)}
-                    onClick={moveNext}
-                    type="button"
-                  >
-                    <ArrowRight size={18} />
-                    {questionIndex + 1 >= questions.length ? '결과 보기' : '다음 질문'}
-                  </button>
                 </div>
-                {selfExplanation && (
-                  <div className="explanation-result">
-                    <span>설명 품질 {formatPercent((selfExplanation.accuracy_score + selfExplanation.completeness_score) / 2)}</span>
-                    <p>{selfExplanation.feedback}</p>
-                  </div>
-                )}
               </section>
-            )}
+
+              {!activeAnswer && (
+                <section className="stuck-panel">
+                  <div className="panel-title">
+                    <MessageSquareText size={19} />
+                    <h2>막혔나요?</h2>
+                  </div>
+                  <div className="stuck-grid">
+                    {stuckOptions.map((option) => (
+                      <button
+                        className="stuck-option"
+                        disabled={!canUseHint || Boolean(loadingLabel)}
+                        key={option.reason}
+                        onClick={() => handleRequestHint(option.reason)}
+                        type="button"
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {activeHints.length > 0 && (
+                <section className="support-list">
+                  {activeHints.map((hint) => (
+                    <article className="support-card" key={hint.id}>
+                      <span>힌트 {hint.hint_level}</span>
+                      <p>{hint.hint_text}</p>
+                    </article>
+                  ))}
+                </section>
+              )}
+
+              {activeAnswer && (
+                <section className="feedback-panel">
+                  <div className="feedback-summary">
+                    <div>
+                      <span>답변 정확도</span>
+                      <strong>{Math.round(activeAnswer.correctness_score * 100)}%</strong>
+                    </div>
+                    <div>
+                      <span>힌트 사용</span>
+                      <strong>{activeAnswer.hints_used} / {activeAnswer.hint_budget}</strong>
+                    </div>
+                    <div>
+                      <span>개념 점수</span>
+                      <strong>{formatPercent(activeAnswer.concept_score)}</strong>
+                    </div>
+                    <div>
+                      <span>개념 티어</span>
+                      <strong>{activeAnswer.concept_tier}</strong>
+                    </div>
+                  </div>
+                  <div className="short-feedback">
+                    <CheckCircle2 size={20} />
+                    <p>{activeAnswer.feedback}</p>
+                  </div>
+                  {activeAnswer.missing_points && (
+                    <p className="missing-point">보완할 지점: {activeAnswer.missing_points}</p>
+                  )}
+                  <div className="action-row">
+                    <button className="glow-btn" onClick={moveNext} type="button">
+                      <ArrowRight size={18} />
+                      다음 개념
+                    </button>
+                  </div>
+                </section>
+              )}
+            </div>
           </div>
         )}
 
         {sessionComplete && (
           <section className="session-result">
-            <BrainCircuit size={42} />
-            <h2>세션 결과</h2>
+            <Sparkles size={44} />
+            <h2>{material?.title} 이해도 결과</h2>
+            <p>{nextTierLine}</p>
             <div className="result-metrics">
               <div>
-                <span>답변 수</span>
-                <strong>{sessionAnswers.length}</strong>
+                <span>자료 티어</span>
+                <strong>{displayTier}</strong>
               </div>
               <div>
-                <span>평균 회상</span>
-                <strong>{formatPercent(averageScore)}</strong>
+                <span>자료 점수</span>
+                <strong>{formatPercent(displayScore)}</strong>
               </div>
               <div>
-                <span>사용한 힌트</span>
-                <strong>{supportUsedTotal}</strong>
+                <span>완료 개념</span>
+                <strong>{completedCount}</strong>
               </div>
               <div>
-                <span>오개념 위험</span>
-                <strong>{sessionAnswers.some((item) => item.misconception) ? '점검 필요' : '낮음'}</strong>
+                <span>평균 힌트</span>
+                <strong>
+                  {(
+                    studyItems.reduce((sum, item) => sum + (hintsByQuestion[item.question.id]?.length ?? 0), 0) /
+                    Math.max(studyItems.length, 1)
+                  ).toFixed(1)}
+                </strong>
               </div>
             </div>
-            <button className="glow-btn" onClick={startOver} type="button">
-              다시 학습하기
-            </button>
+            <div className="concept-result-list">
+              {studyItems.map((item) => (
+                <div className="concept-result-item" key={item.question.id}>
+                  <span>{item.concept.title}</span>
+                  <strong>{item.tier_name}</strong>
+                  <em>{formatPercent(item.concept_score)}</em>
+                </div>
+              ))}
+            </div>
           </section>
         )}
       </section>

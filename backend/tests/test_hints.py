@@ -49,6 +49,34 @@ def create_answer(client: TestClient, headers: dict[str, str]) -> int:
     return int(answer_response.json()["id"])
 
 
+def create_study_question(client: TestClient, headers: dict[str, str]) -> tuple[int, int, int]:
+    upload_response = client.post(
+        "/api/materials/upload",
+        files={
+            "file": (
+                "pre-answer-hinting.pdf",
+                make_pdf_bytes(
+                    "Active recall asks learners to retrieve ideas before review. "
+                    "Gradual hints should start small and become more specific."
+                ),
+                "application/pdf",
+            )
+        },
+        headers=headers,
+    )
+    assert upload_response.status_code == 201
+
+    material_id = upload_response.json()["id"]
+    study_response = client.post(f"/api/materials/{material_id}/study/start", headers=headers)
+    assert study_response.status_code == 200
+    body = study_response.json()
+    return (
+        int(body["session_id"]),
+        int(body["concepts"][0]["question"]["id"]),
+        int(body["concepts"][0]["hint_budget"]),
+    )
+
+
 def test_request_hint_for_answer() -> None:
     with TestClient(create_app()) as client:
         headers = auth_headers(client)
@@ -65,6 +93,8 @@ def test_request_hint_for_answer() -> None:
         assert body["id"] > 0
         assert body["user_answer_id"] == answer_id
         assert body["hint_level"] == 2
+        assert body["hint_budget"] >= 2
+        assert body["hints_used"] >= 1
         assert body["hint_text"]
         assert body["evidence"]
         assert body["source"] in {"heuristic", "gemini"}
@@ -106,3 +136,43 @@ def test_request_hint_rejects_invalid_level() -> None:
         )
 
         assert response.status_code == 422
+
+
+def test_request_pre_answer_hint_for_question() -> None:
+    with TestClient(create_app()) as client:
+        headers = auth_headers(client)
+        session_id, question_id, hint_budget = create_study_question(client, headers)
+
+        response = client.post(
+            f"/api/questions/{question_id}/hint",
+            json={
+                "session_id": session_id,
+                "hint_level": 1,
+                "stuck_reason": "forgot_word",
+            },
+            headers=headers,
+        )
+
+        body = response.json()
+        assert response.status_code == 201
+        assert body["id"] > 0
+        assert body["user_answer_id"] is None
+        assert body["session_id"] == session_id
+        assert body["question_id"] == question_id
+        assert body["hint_level"] == 1
+        assert body["hint_budget"] == hint_budget
+        assert body["hints_used"] == 1
+        assert body["stuck_reason"] == "forgot_word"
+        assert body["hint_text"]
+        assert body["evidence"]
+
+        with SessionLocal() as db:
+            evidence_count = (
+                db.query(EvidenceLog)
+                .filter(
+                    EvidenceLog.related_question_id == question_id,
+                    EvidenceLog.purpose == "pre_answer_hint_generation",
+                )
+                .count()
+            )
+            assert evidence_count > 0

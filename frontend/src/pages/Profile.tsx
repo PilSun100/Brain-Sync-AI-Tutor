@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, BrainCircuit, Gauge, HelpCircle, Lightbulb, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, Gauge, HelpCircle, Lightbulb, ShieldAlert, Sparkles } from 'lucide-react';
 import { getLearningProfile } from '../api/client';
 import type { LearningProfileResponse } from '../types/api';
 import './Profile.css';
@@ -11,7 +11,7 @@ const metricCopy = [
     key: 'recall',
     title: 'Recall Strength',
     description: '도움 없이 기억에서 개념을 꺼내는 힘입니다.',
-    icon: BrainCircuit,
+    icon: Sparkles,
     value: (profile: LearningProfileResponse) => profile.average_recall_score,
   },
   {
@@ -126,7 +126,7 @@ export function Profile() {
       <section className="profile-note glass-panel">
         <h2>개인화 기준</h2>
         <p>
-          Brain-Sync는 정답률만 보지 않고 힌트 없이 떠올렸는지, 자기 말로 설명했는지,
+          SYNAPTOR는 정답률만 보지 않고 힌트 없이 떠올렸는지, 자기 말로 설명했는지,
           반복되는 오개념이 있는지를 함께 반영합니다.
         </p>
       </section>

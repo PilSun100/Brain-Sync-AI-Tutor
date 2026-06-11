@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
-  BrainCircuit,
   CalendarClock,
   Gauge,
   Lightbulb,
@@ -10,6 +9,7 @@ import {
   PlayCircle,
   RefreshCcw,
   ShieldAlert,
+  Sparkles,
   Target,
 } from 'lucide-react';
 import { getDashboardSummary } from '../api/client';
@@ -86,7 +86,7 @@ export const Dashboard = () => {
       <header className="dashboard-header">
         <div>
           <h1>오늘의 학습 경로, <span className="text-gradient">{user?.display_name ?? 'Learner'}</span></h1>
-          <p className="subtitle">Brain-Sync가 회상 점수, 오개념, 망각 위험을 합쳐 오늘의 학습 경로를 계산합니다.</p>
+          <p className="subtitle">SYNAPTOR가 회상 점수, 오개념, 망각 위험을 합쳐 오늘의 학습 경로를 계산합니다.</p>
         </div>
         <div className="dashboard-actions">
           <Link className="ghost-link" to="/review">
@@ -113,7 +113,7 @@ export const Dashboard = () => {
 
       <section className="today-sync glass-panel">
         <div className="section-heading">
-          <BrainCircuit size={22} />
+          <Sparkles size={22} />
           <div>
             <h2>오늘의 추천 학습</h2>
             <p>{loading ? '개인화 학습 경로를 계산하는 중입니다.' : profile?.recommendation_reason}</p>
@@ -188,7 +188,7 @@ export const Dashboard = () => {
           <div className="weak-list">
             {profile?.weak_concepts.length === 0 && (
               <div className="empty-state">
-                <BrainCircuit size={40} className="text-gradient" style={{ opacity: 0.5 }} />
+                <Sparkles size={40} className="text-gradient" style={{ opacity: 0.5 }} />
                 <p>아직 취약 개념 데이터가 없습니다. 학습실에서 첫 세션을 시작하세요.</p>
               </div>
             )}

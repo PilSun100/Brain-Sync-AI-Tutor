@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.db.dependencies import get_current_user, get_db
-from app.models.learning import Concept, LearningMaterial, Question, User
+from app.models.learning import Concept, LearningMaterial, LearningSession, Question, User, UserAnswer
 from app.schemas.materials import MaterialListResponse, MaterialSummaryResponse, MaterialUploadResponse
-from app.schemas.study import StudyStartResponse
+from app.schemas.study import MaterialMasterySummary, StudyConceptItem, StudyStartResponse
 from app.services.concept_service import extract_and_store_concepts
 from app.services.embedding_service import embed_material_chunks
 from app.services.llm_provider import get_llm_provider
@@ -14,6 +14,7 @@ from app.services.material_chunk_service import build_material_chunks
 from app.services.ownership_service import ensure_material_owner
 from app.services.pdf_service import extract_pdf_pages, join_page_texts, save_upload_file, validate_pdf_upload
 from app.services.question_service import generate_and_store_questions
+from app.services.tier_service import hint_budget_for_difficulty, update_material_mastery
 from app.services.visual_chunk_service import build_visual_description_chunks
 
 router = APIRouter()
@@ -128,25 +129,61 @@ def start_material_study(
                 detail=str(exc),
             ) from exc
 
-    concept = concepts[0]
-    questions = (
-        db.query(Question)
-        .filter(Question.concept_id == concept.id)
-        .order_by(Question.id.asc())
-        .all()
-    )
+    session = LearningSession(material_id=material.id, user_id=current_user.id)
+    db.add(session)
+    db.flush()
 
-    if not questions:
-        provider = provider or get_llm_provider()
-        try:
-            source, questions = generate_and_store_questions(db, concept, provider)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=str(exc),
-            ) from exc
+    study_items: list[StudyConceptItem] = []
+    for concept in concepts:
+        questions = (
+            db.query(Question)
+            .filter(Question.concept_id == concept.id)
+            .order_by(Question.id.asc())
+            .all()
+        )
+
+        if not questions:
+            provider = provider or get_llm_provider()
+            try:
+                source, questions = generate_and_store_questions(db, concept, provider)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=str(exc),
+                ) from exc
+
+        mastery = concept.mastery
+        completed = (
+            db.query(UserAnswer)
+            .join(LearningSession, UserAnswer.session_id == LearningSession.id)
+            .filter(
+                LearningSession.user_id == current_user.id,
+                LearningSession.material_id == material.id,
+                UserAnswer.question_id.in_([question.id for question in questions]),
+            )
+            .count()
+            > 0
+        )
+        study_items.append(
+            StudyConceptItem(
+                concept=concept,
+                question=questions[0],
+                difficulty=concept.difficulty,
+                hint_budget=hint_budget_for_difficulty(concept.difficulty),
+                concept_score=mastery.concept_score if mastery else 0.0,
+                tier_name=mastery.tier_name if mastery else "초심자",
+                completed=completed,
+            )
+        )
+
+    material_mastery = update_material_mastery(db, session)
+    db.commit()
+    db.refresh(session)
+    if material_mastery is not None:
+        db.refresh(material_mastery)
 
     return StudyStartResponse(
+        session_id=session.id,
         material=MaterialSummaryResponse(
             id=material.id,
             title=material.title,
@@ -154,7 +191,16 @@ def start_material_study(
             preview=material.extracted_text[:220],
             created_at=material.created_at,
         ),
-        concept=concept,
-        questions=questions,
+        concepts=study_items,
+        material_mastery=(
+            MaterialMasterySummary(
+                material_score=material_mastery.material_score,
+                tier_name=material_mastery.tier_name,
+                completed_concepts=material_mastery.completed_concepts,
+                total_concepts=material_mastery.total_concepts,
+            )
+            if material_mastery
+            else None
+        ),
         source=source,
     )

@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { BrainCircuit, BookOpen, LogOut, MessageSquareText, User } from 'lucide-react';
+import { BookOpen, LogOut, MessageSquareText, User } from 'lucide-react';
 import { useAuth } from '../auth/useAuth';
 import './Sidebar.css';
 
@@ -9,8 +9,8 @@ export const Sidebar = () => {
   return (
     <aside className="sidebar glass-panel">
       <div className="sidebar-header">
-        <BrainCircuit className="logo-icon text-gradient" size={32} />
-        <h2 className="text-gradient">Brain-Sync</h2>
+        <img alt="SYNAPTOR" className="brand-logo" src="/synaptor-mark.png" />
+        <h2>SYNAPTOR</h2>
       </div>
       <nav className="sidebar-nav">
         <NavLink to="/study" className={({isActive}) => isActive ? "nav-item active" : "nav-item"}>

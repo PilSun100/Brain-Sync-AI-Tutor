@@ -39,6 +39,14 @@
   white-space: nowrap;
 }
 
+.status-brand-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  object-fit: cover;
+  object-position: center;
+}
+
 .spin-icon {
   animation: spin 0.9s linear infinite;
 }
@@ -69,7 +77,7 @@
 
 .study-topline {
   display: grid;
-  grid-template-columns: 1.5fr 0.55fr 0.65fr;
+  grid-template-columns: 1.4fr 0.55fr 0.55fr 0.55fr;
   gap: 12px;
 }
 
@@ -114,8 +122,7 @@
 
 .study-start-panel,
 .stuck-panel,
-.feedback-panel,
-.self-explain-panel {
+.feedback-panel {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 18px;
@@ -131,8 +138,7 @@
   gap: 10px;
 }
 
-.panel-title h2,
-.self-explain-panel h2 {
+.panel-title h2 {
   font-size: 1.08rem;
 }
 
@@ -196,6 +202,73 @@
   gap: 14px;
 }
 
+.study-workspace {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.34fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.concept-rail {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-quiet);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.concept-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.concept-group h2 {
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+}
+
+.concept-rank-item {
+  width: 100%;
+  min-height: 54px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  padding: 10px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  transition: var(--transition);
+}
+
+.concept-rank-item:hover,
+.concept-rank-item.active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.concept-rank-item.done {
+  border-color: rgba(15, 118, 110, 0.36);
+}
+
+.concept-rank-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.concept-rank-item strong {
+  color: var(--primary-strong);
+  font-size: 0.84rem;
+}
+
 .material-item {
   width: 100%;
   border: 1px solid var(--border);
@@ -238,6 +311,12 @@
   font-size: 1.45rem;
   line-height: 1.45;
   overflow-wrap: anywhere;
+}
+
+.question-card p {
+  color: var(--text-primary);
+  font-size: 1.04rem;
+  line-height: 1.6;
 }
 
 .question-meta-row {
@@ -330,8 +409,7 @@
 
 .support-card p,
 .short-feedback p,
-.missing-point,
-.explanation-result p {
+.missing-point {
   color: var(--text-primary);
   line-height: 1.55;
   overflow-wrap: anywhere;
@@ -345,7 +423,7 @@
 }
 
 .feedback-summary {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .short-feedback {
@@ -361,22 +439,8 @@
   padding: 12px;
 }
 
-.explanation-result {
-  border-radius: 8px;
-  background: var(--primary-soft);
-  border: 1px solid var(--border-highlight);
-  padding: 12px;
-}
-
-.explanation-result span {
-  display: block;
-  margin-bottom: 6px;
-  color: var(--primary-strong);
-  font-weight: 800;
-}
-
 .session-result {
-  min-height: 360px;
+  min-height: 420px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -389,8 +453,46 @@
   color: var(--primary);
 }
 
+.session-result p {
+  color: var(--text-secondary);
+}
+
+.concept-result-list {
+  width: min(760px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.concept-result-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-quiet);
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 14px;
+  align-items: center;
+  text-align: left;
+}
+
+.concept-result-item span {
+  overflow-wrap: anywhere;
+}
+
+.concept-result-item strong {
+  color: var(--primary-strong);
+}
+
+.concept-result-item em {
+  color: var(--text-secondary);
+  font-style: normal;
+  font-weight: 800;
+}
+
 @media (max-width: 1180px) {
   .stuck-grid,
+  .feedback-summary,
   .result-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -403,6 +505,7 @@
 
   .study-header,
   .study-start-grid,
+  .study-workspace,
   .study-topline {
     grid-template-columns: 1fr;
     flex-direction: column;

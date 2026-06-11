@@ -101,10 +101,13 @@ def test_start_material_study_prepares_first_question() -> None:
 
         body = response.json()
         assert response.status_code == 200
+        assert body["session_id"] > 0
         assert body["material"]["id"] == material_id
-        assert body["concept"]["id"] > 0
-        assert body["questions"]
-        assert body["questions"][0]["question_text"]
+        assert body["concepts"]
+        assert body["concepts"][0]["concept"]["id"] > 0
+        assert body["concepts"][0]["question"]["question_text"]
+        assert body["concepts"][0]["hint_budget"] in {3, 4, 5}
+        assert body["concepts"][0]["tier_name"] in {"초심자", "견습생", "숙련자", "탐구자", "현자"}
         assert body["source"] in {"heuristic", "gemini", "stored"}
 
 

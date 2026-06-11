@@ -24,6 +24,15 @@
   color: var(--primary-strong);
 }
 
+.auth-brand img {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  object-fit: cover;
+  object-position: left center;
+  background: white;
+}
+
 .auth-product-panel h1 {
   max-width: 720px;
   margin-bottom: 16px;
@@ -165,6 +174,13 @@
   justify-content: center;
   gap: 12px;
   color: var(--text-secondary);
+}
+
+.loading-brand-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  object-fit: cover;
 }
 
 @media (max-width: 960px) {
