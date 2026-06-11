@@ -11,6 +11,7 @@ import type {
   QuestionGenerationResponse,
   SelfExplanationResponse,
   SessionReportResponse,
+  StudyStartResponse,
   TutorChatResponse,
   User,
 } from '../types/api';
@@ -146,6 +147,12 @@ export async function uploadMaterial(file: File): Promise<MaterialUploadResponse
   return request<MaterialUploadResponse>('/materials/upload', {
     method: 'POST',
     body: formData,
+  });
+}
+
+export function startMaterialStudy(materialId: number): Promise<StudyStartResponse> {
+  return request<StudyStartResponse>(`/materials/${materialId}/study/start`, {
+    method: 'POST',
   });
 }
 

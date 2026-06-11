@@ -159,6 +159,13 @@ export type QuestionGenerationResponse = {
   questions: Question[];
 };
 
+export type StudyStartResponse = {
+  material: MaterialSummary;
+  concept: Concept;
+  questions: Question[];
+  source: string;
+};
+
 export type AdaptiveLearningState = {
   mastery_level: number;
   confidence_score: number;

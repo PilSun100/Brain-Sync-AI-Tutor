@@ -1,25 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowRight,
   BrainCircuit,
-  CalendarClock,
   CheckCircle2,
   FileText,
   FileUp,
-  Gauge,
   HelpCircle,
-  ListChecks,
+  Loader2,
   MessageSquareText,
-  PlayCircle,
-  RefreshCcw,
   Send,
 } from 'lucide-react';
 import {
-  extractConcepts,
-  getDashboardSummary,
-  generateQuestions,
-  getSessionReport,
-  requestHint,
+  getMaterials,
+  startMaterialStudy,
   submitAnswer,
   submitSelfExplanation,
   uploadMaterial,
@@ -27,138 +21,144 @@ import {
 import type {
   AnswerEvaluationResponse,
   Concept,
-  DashboardSummaryResponse,
-  EvidenceSnippet,
-  HintResponse,
-  MaterialUploadResponse,
+  MaterialSummary,
   Question,
   SelfExplanationResponse,
-  SessionReportResponse,
 } from '../types/api';
 import './StudyRoom.css';
 
-const formatPercent = (value: number) => `${Math.round(value * 100)}%`;
+const HINT_BUDGET = 5;
+
+type SupportEntry = {
+  id: string;
+  label: string;
+  text: string;
+};
+
+type SessionAnswer = {
+  score: number;
+  misconception: boolean;
+  hintsUsed: number;
+};
+
+type StuckOption = {
+  label: string;
+  build: (concept: Concept, question: Question) => string;
+};
 
 const questionTypeLabels: Record<string, string> = {
-  definition: '정의형',
-  cause_effect: '원인-결과형',
-  example: '예시 생성형',
-  application: '적용형',
-  misconception_check: '오개념 점검형',
+  definition: '개념 회상',
+  comparison: '비교 설명',
+  cause_effect: '원인과 결과',
+  example: '예시 만들기',
+  application: '적용하기',
+  misconception: '오개념 점검',
+  misconception_check: '오개념 점검',
 };
 
-const methodLabels: Record<string, string> = {
-  active_recall: 'Active Recall',
-  feynman_check: 'Feynman Check',
-  misconception_repair: 'Misconception Repair',
-  example_first: 'Example First',
-  hint_ladder: 'Hint Ladder',
-  spaced_review: 'Spaced Review',
-  mixed_practice: 'Mixed Practice',
-};
+const stuckOptions: StuckOption[] = [
+  {
+    label: '단어가 기억나지 않아요',
+    build: (concept: Concept, question: Question) =>
+      `키워드 단서: ${keywordCue(concept, question)}. 이 단어가 질문에서 어떤 역할을 하는지 먼저 떠올려보세요.`,
+  },
+  {
+    label: '개념은 아는데 설명이 안 돼요',
+    build: (concept: Concept) =>
+      `문장 시작: "${concept.title}은/는 ..."으로 시작한 뒤, 왜 중요한지 한 문장을 덧붙여보세요.`,
+  },
+  {
+    label: '질문이 이해되지 않아요',
+    build: (_concept: Concept, question: Question) =>
+      `질문을 더 작게 나누면: "${question.question_text}"에서 먼저 묻는 대상과 설명해야 할 관계를 분리해보세요.`,
+  },
+  {
+    label: '두 개념이 헷갈려요',
+    build: (concept: Concept) =>
+      `${concept.title}과/와 헷갈리는 개념을 하나 적고, "공통점 1개, 차이점 1개"만 먼저 비교해보세요.`,
+  },
+];
 
-const hintLevelLabels: Record<number, string> = {
-  1: '방향만 제시',
-  2: '관련 개념 연결',
-  3: '답변 구조 잡기',
-  4: '강한 발판 제공',
-  5: '정답 직전 설명',
-};
+const formatPercent = (value: number) => `${Math.round(value * 100)}%`;
 
-const chunkTypeLabels: Record<string, string> = {
-  text: '텍스트 근거',
-  image_description: '이미지/도표 근거',
-};
+function keywordCue(concept: Concept, question: Question): string {
+  const source = `${concept.title} ${concept.description} ${question.question_text}`;
+  const tokens = source
+    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
+    .split(/\s+/)
+    .filter((token) => token.length >= 3);
 
-const normalizeQuestionType = (type: string) => type.toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
+  return tokens.slice(0, 3).join(', ') || concept.title;
+}
 
-const matchesRecommendedType = (questionType: string, recommendedType: string) => {
-  const normalizedQuestion = normalizeQuestionType(questionType);
-  const normalizedRecommended = normalizeQuestionType(recommendedType);
+function buildHint(level: number, concept: Concept, question: Question): string {
+  const cue = keywordCue(concept, question);
+  const typeLabel = questionTypeLabels[question.question_type] ?? question.question_type;
+  const templates: Record<number, string> = {
+    1: `작은 방향만 볼게요. 이 질문은 ${typeLabel} 문제이고, 먼저 "${concept.title}"의 핵심 역할을 떠올리면 됩니다.`,
+    2: `관련 개념 단서: ${cue}. 이 단어들이 서로 어떤 순서나 관계로 이어지는지 생각해보세요.`,
+    3: '답변 구조를 잡아보세요. "무엇인가 → 왜 중요한가 → 어떤 결과가 생기는가" 순서로 한 문장씩 쓰면 됩니다.',
+    4: `조금 더 강한 발판입니다. ${concept.title}을/를 설명할 때 빠지면 안 되는 조건이나 비교 지점을 하나 적어보세요.`,
+    5: '거의 다 왔습니다. 정답을 보기 전에 핵심 키워드 2개를 넣어 짧은 설명문으로 다시 구성해보세요.',
+  };
 
-  if (normalizedRecommended === 'example') {
-    return normalizedQuestion.includes('example') || normalizedQuestion.includes('application');
-  }
-  if (normalizedRecommended === 'misconception_check') {
-    return normalizedQuestion.includes('definition') || normalizedQuestion.includes('compare');
-  }
-  return normalizedQuestion.includes(normalizedRecommended);
-};
-
-const EvidenceList = ({ evidence }: { evidence: EvidenceSnippet[] }) => {
-  if (evidence.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="evidence-panel">
-      <div className="evidence-title">
-        <FileText size={16} />
-        <span>PDF 근거</span>
-      </div>
-      <div className="evidence-list">
-        {evidence.map((item) => (
-          <div className="evidence-item" key={`${item.chunk_id}-${item.relevance_score}`}>
-            <span>
-              p.{item.page_number} · {chunkTypeLabels[item.chunk_type] ?? item.chunk_type} · relevance{' '}
-              {Math.round(item.relevance_score * 100)}%
-            </span>
-            <p>{item.snippet}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
+  return templates[level] ?? templates[1];
+}
 
 export const StudyRoom = () => {
-  const [dashboardSummary, setDashboardSummary] = useState<DashboardSummaryResponse | null>(null);
+  const [materials, setMaterials] = useState<MaterialSummary[]>([]);
   const [file, setFile] = useState<File | null>(null);
-  const [material, setMaterial] = useState<MaterialUploadResponse | null>(null);
-  const [concepts, setConcepts] = useState<Concept[]>([]);
-  const [selectedConcept, setSelectedConcept] = useState<Concept | null>(null);
+  const [material, setMaterial] = useState<MaterialSummary | null>(null);
+  const [concept, setConcept] = useState<Concept | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
-  const [activeQuestion, setActiveQuestion] = useState<Question | null>(null);
+  const [questionIndex, setQuestionIndex] = useState(0);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [answerText, setAnswerText] = useState('');
   const [answerStartedAt, setAnswerStartedAt] = useState<number | null>(null);
   const [answer, setAnswer] = useState<AnswerEvaluationResponse | null>(null);
-  const [hints, setHints] = useState<HintResponse[]>([]);
   const [selfExplanationText, setSelfExplanationText] = useState('');
   const [selfExplanation, setSelfExplanation] = useState<SelfExplanationResponse | null>(null);
-  const [report, setReport] = useState<SessionReportResponse | null>(null);
+  const [supportEntries, setSupportEntries] = useState<SupportEntry[]>([]);
+  const [supportUsedTotal, setSupportUsedTotal] = useState(0);
+  const [sessionAnswers, setSessionAnswers] = useState<SessionAnswer[]>([]);
+  const [sessionComplete, setSessionComplete] = useState(false);
   const [loadingLabel, setLoadingLabel] = useState('');
   const [error, setError] = useState('');
 
-  const canRequestHint = Boolean(answer && hints.length < 5);
-  const currentHintLevel = hints.length + 1;
-  const adaptiveState = selfExplanation?.adaptive_state ?? answer?.adaptive_state ?? report?.adaptive_summary[0] ?? null;
-  const learningMode = answer?.misconception_detected
-    ? 'misconception_repair'
-    : adaptiveState?.next_question_type === 'example'
-      ? 'example_first'
-      : dashboardSummary?.profile.best_intervention_type ?? 'active_recall';
-  const recommendedDifficulty = adaptiveState?.next_difficulty ?? dashboardSummary?.profile.preferred_difficulty_level ?? 'diagnostic';
-  const topReview = dashboardSummary?.daily_review.review_items[0] ?? null;
-  const coachReason = adaptiveState?.personalized_explanation
-    ?? dashboardSummary?.profile.recommendation_reason
-    ?? '첫 답변을 제출하면 Brain-Sync가 현재 수준과 다음 학습 방식을 계산합니다.';
-  const nextAction = adaptiveState?.recommended_strategy
-    ?? dashboardSummary?.profile.next_action
-    ?? '자료를 업로드하고 기억에서 직접 답을 꺼내보세요.';
+  const activeQuestion = questions[questionIndex] ?? null;
+  const questionSupportUsed = supportEntries.length;
+  const remainingHints = Math.max(0, HINT_BUDGET - supportUsedTotal);
+  const canUseSupport = Boolean(concept && activeQuestion && !answer && remainingHints > 0 && !sessionComplete);
+  const progressLabel = questions.length > 0 ? `${Math.min(questionIndex + 1, questions.length)} / ${questions.length}` : '0 / 0';
+  const averageScore = useMemo(() => {
+    if (sessionAnswers.length === 0) {
+      return 0;
+    }
+    return sessionAnswers.reduce((sum, item) => sum + item.score, 0) / sessionAnswers.length;
+  }, [sessionAnswers]);
 
-  const steps = useMemo(
-    () => [
-      { label: '자료', done: Boolean(material) },
-      { label: '개념', done: concepts.length > 0 },
-      { label: '질문', done: questions.length > 0 },
-      { label: '답변', done: Boolean(answer) },
-      { label: '힌트', done: hints.length > 0 },
-      { label: '설명', done: Boolean(selfExplanation) },
-      { label: '리포트', done: Boolean(report) },
-    ],
-    [answer, concepts.length, hints.length, material, questions.length, report, selfExplanation],
-  );
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadMaterials() {
+      try {
+        const response = await getMaterials();
+        if (mounted) {
+          setMaterials(response.materials);
+        }
+      } catch {
+        if (mounted) {
+          setMaterials([]);
+        }
+      }
+    }
+
+    void loadMaterials();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const runAction = async (label: string, action: () => Promise<void>) => {
     setError('');
@@ -172,78 +172,84 @@ export const StudyRoom = () => {
     }
   };
 
-  const refreshDashboardSummary = async () => {
-    try {
-      const response = await getDashboardSummary();
-      setDashboardSummary(response);
-    } catch {
-      // Study flow should remain usable even when the dashboard summary is temporarily unavailable.
-    }
+  const beginStudy = async (materialId: number) => {
+    const response = await startMaterialStudy(materialId);
+    setMaterial(response.material);
+    setConcept(response.concept);
+    setQuestions(response.questions);
+    setQuestionIndex(0);
+    setSessionId(null);
+    setAnswerText('');
+    setAnswer(null);
+    setSelfExplanationText('');
+    setSelfExplanation(null);
+    setSupportEntries([]);
+    setSupportUsedTotal(0);
+    setSessionAnswers([]);
+    setSessionComplete(false);
+    setAnswerStartedAt(Date.now());
   };
 
-  useEffect(() => {
-    void refreshDashboardSummary();
-  }, []);
-
-  const handleUpload = () =>
-    runAction('자료 업로드 중', async () => {
+  const handleUploadAndStart = () =>
+    runAction('자료 분석 중', async () => {
       if (!file) {
         throw new Error('PDF 파일을 먼저 선택하세요.');
       }
 
       const uploaded = await uploadMaterial(file);
-      setMaterial(uploaded);
-      setConcepts([]);
-      setSelectedConcept(null);
-      setQuestions([]);
-      setActiveQuestion(null);
-      setSessionId(null);
-      setAnswer(null);
-      setHints([]);
-      setSelfExplanation(null);
-      setReport(null);
-      setAnswerText('');
-      setSelfExplanationText('');
+      const summary: MaterialSummary = {
+        id: uploaded.id,
+        title: uploaded.title,
+        extracted_text_length: uploaded.extracted_text_length,
+        preview: uploaded.preview,
+        created_at: uploaded.created_at,
+      };
+      setMaterials((current) => [summary, ...current.filter((item) => item.id !== summary.id)]);
+      await beginStudy(uploaded.id);
     });
 
-  const handleExtractConcepts = () =>
-    runAction('핵심 개념 추출 중', async () => {
-      if (!material) {
-        throw new Error('먼저 자료를 업로드하세요.');
-      }
-
-      const extracted = await extractConcepts(material.id);
-      setConcepts(extracted.concepts);
-      setSelectedConcept(extracted.concepts[0] ?? null);
-      setQuestions([]);
-      setActiveQuestion(null);
-      setSessionId(null);
-      setAnswer(null);
-      setHints([]);
-      setSelfExplanation(null);
-      setReport(null);
+  const handleStartExisting = (materialId: number) =>
+    runAction('학습 준비 중', async () => {
+      await beginStudy(materialId);
     });
 
-  const handleGenerateQuestions = (concept: Concept) =>
-    runAction('질문 생성 중', async () => {
-      const generated = await generateQuestions(concept.id);
-      setSelectedConcept(concept);
-      setQuestions(generated.questions);
-      setActiveQuestion(generated.questions[0] ?? null);
-      setSessionId(null);
-      setAnswerStartedAt(Date.now());
-      setAnswer(null);
-      setHints([]);
-      setSelfExplanation(null);
-      setReport(null);
-      setAnswerText('');
-      setSelfExplanationText('');
-    });
+  const useHint = () => {
+    if (!concept || !activeQuestion || !canUseSupport) {
+      return;
+    }
+
+    const level = supportUsedTotal + 1;
+    setSupportEntries((current) => [
+      ...current,
+      {
+        id: `hint-${Date.now()}`,
+        label: `힌트 ${level}`,
+        text: buildHint(level, concept, activeQuestion),
+      },
+    ]);
+    setSupportUsedTotal((current) => current + 1);
+  };
+
+  const useStuckOption = (option: (typeof stuckOptions)[number]) => {
+    if (!concept || !activeQuestion || !canUseSupport) {
+      return;
+    }
+
+    setSupportEntries((current) => [
+      ...current,
+      {
+        id: `stuck-${Date.now()}`,
+        label: option.label,
+        text: option.build(concept, activeQuestion),
+      },
+    ]);
+    setSupportUsedTotal((current) => current + 1);
+  };
 
   const handleSubmitAnswer = () =>
     runAction('답변 평가 중', async () => {
       if (!activeQuestion) {
-        throw new Error('먼저 질문을 생성하세요.');
+        throw new Error('먼저 질문을 준비하세요.');
       }
       if (!answerText.trim()) {
         throw new Error('답변을 입력하세요.');
@@ -253,126 +259,63 @@ export const StudyRoom = () => {
       const evaluated = await submitAnswer(activeQuestion.id, answerText, responseTime, sessionId);
       setAnswer(evaluated);
       setSessionId(evaluated.session_id);
-      setHints([]);
-      setReport(null);
-      void refreshDashboardSummary();
-    });
-
-  const handleRequestHint = () =>
-    runAction(`Level ${currentHintLevel} 힌트 요청 중`, async () => {
-      if (!answer) {
-        throw new Error('답변 평가 후 힌트를 요청할 수 있습니다.');
-      }
-
-      const hint = await requestHint(answer.id, currentHintLevel);
-      setHints((current) => [...current, hint]);
-      void refreshDashboardSummary();
+      setSessionAnswers((current) => [
+        ...current,
+        {
+          score: evaluated.correctness_score,
+          misconception: evaluated.misconception_detected,
+          hintsUsed: questionSupportUsed,
+        },
+      ]);
     });
 
   const handleSubmitSelfExplanation = () =>
-    runAction('자기 설명 평가 중', async () => {
-      if (!selectedConcept) {
-        throw new Error('개념을 먼저 선택하세요.');
+    runAction('설명 평가 중', async () => {
+      if (!concept) {
+        throw new Error('개념을 먼저 준비하세요.');
       }
       if (selfExplanationText.trim().length < 10) {
         throw new Error('자기 설명은 10자 이상 입력하세요.');
       }
 
-      const evaluated = await submitSelfExplanation(selectedConcept.id, selfExplanationText);
+      const evaluated = await submitSelfExplanation(concept.id, selfExplanationText);
       setSelfExplanation(evaluated);
-      void refreshDashboardSummary();
-
-      if (sessionId) {
-        const sessionReport = await getSessionReport(sessionId);
-        setReport(sessionReport);
-      }
     });
 
-  const handleLoadReport = () =>
-    runAction('리포트 조회 중', async () => {
-      if (!sessionId) {
-        throw new Error('답변 평가 후 리포트를 조회할 수 있습니다.');
-      }
-
-      const sessionReport = await getSessionReport(sessionId);
-      setReport(sessionReport);
-    });
-
-  const handleMoveToAdaptiveQuestion = () => {
-    if (!adaptiveState || !activeQuestion || questions.length === 0) {
+  const moveNext = () => {
+    if (questionIndex + 1 >= questions.length) {
+      setSessionComplete(true);
       return;
     }
 
-    const currentIndex = questions.findIndex((question) => question.id === activeQuestion.id);
-    const recommended = questions.find(
-      (question) =>
-        question.id !== activeQuestion.id &&
-        matchesRecommendedType(question.question_type, adaptiveState.next_question_type),
-    );
-    const fallback = questions[(currentIndex + 1 + questions.length) % questions.length];
-    const nextQuestion = recommended ?? fallback;
-
-    if (!nextQuestion || nextQuestion.id === activeQuestion.id) {
-      return;
-    }
-
-    setActiveQuestion(nextQuestion);
+    setQuestionIndex((current) => current + 1);
     setAnswerText('');
     setAnswer(null);
-    setHints([]);
+    setSelfExplanationText('');
     setSelfExplanation(null);
-    setReport(null);
+    setSupportEntries([]);
     setAnswerStartedAt(Date.now());
+  };
+
+  const startOver = () => {
+    if (!material) {
+      return;
+    }
+    void handleStartExisting(material.id);
   };
 
   return (
     <div className="study-room">
       <header className="study-header">
         <div>
-          <h1>학습실</h1>
-          <p className="subtitle">PDF에서 개념을 꺼내고, 답변과 힌트로 기억 회로를 훈련합니다.</p>
+          <h1>Study</h1>
+          <p className="subtitle">자료를 읽기 전에 먼저 기억에서 꺼내보는 능동 회상 학습실입니다.</p>
         </div>
         <div className="status-pill">
-          <BrainCircuit size={18} />
+          {loadingLabel ? <Loader2 size={18} className="spin-icon" /> : <BrainCircuit size={18} />}
           {loadingLabel || '준비됨'}
         </div>
       </header>
-
-      <section className="step-strip glass-panel">
-        {steps.map((step) => (
-          <div className={`step-chip ${step.done ? 'done' : ''}`} key={step.label}>
-            <CheckCircle2 size={16} />
-            <span>{step.label}</span>
-          </div>
-        ))}
-      </section>
-
-      <section className="personalization-strip glass-panel">
-        <div className="personalization-card primary">
-          <BrainCircuit size={20} />
-          <div>
-            <span>현재 학습 모드</span>
-            <strong>{methodLabels[learningMode] ?? learningMode}</strong>
-            <p>{coachReason}</p>
-          </div>
-        </div>
-        <div className="personalization-card">
-          <Gauge size={20} />
-          <div>
-            <span>권장 난이도</span>
-            <strong>{recommendedDifficulty}</strong>
-            <p>{nextAction}</p>
-          </div>
-        </div>
-        <div className="personalization-card">
-          <CalendarClock size={20} />
-          <div>
-            <span>오늘 복습 포커스</span>
-            <strong>{topReview?.concept_title ?? '복습 대기 없음'}</strong>
-            <p>{topReview?.reason ?? '새 답변이 쌓이면 망각 위험 기반 복습이 생성됩니다.'}</p>
-          </div>
-        </div>
-      </section>
 
       {error && (
         <div className="error-banner">
@@ -381,293 +324,226 @@ export const StudyRoom = () => {
         </div>
       )}
 
-      <div className="study-grid">
-        <section className="glass-panel workflow-panel">
-          <div className="panel-title">
-            <FileUp size={20} />
-            <h2>자료 업로드</h2>
+      <section className="study-shell glass-panel">
+        <div className="study-topline">
+          <div>
+            <span>현재 자료</span>
+            <strong>{material?.title ?? '자료를 선택하세요'}</strong>
           </div>
-          <label className="upload-box">
-            <input
-              accept="application/pdf"
-              type="file"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-            />
-            <span>{file ? file.name : 'PDF 파일 선택'}</span>
-          </label>
-          <button className="glow-btn full-button" disabled={!file || Boolean(loadingLabel)} onClick={handleUpload}>
-            <FileUp size={18} />
-            업로드
-          </button>
-
-          {material && (
-            <div className="result-box">
-              <strong>{material.title}</strong>
-              <span>{material.extracted_text_length.toLocaleString()}자 추출</span>
-              <p>{material.preview}</p>
-            </div>
-          )}
-
-          <button
-            className="secondary-btn full-button"
-            disabled={!material || Boolean(loadingLabel)}
-            onClick={handleExtractConcepts}
-          >
-            <ListChecks size={18} />
-            핵심 개념 추출
-          </button>
-        </section>
-
-        <section className="glass-panel workflow-panel">
-          <div className="panel-title">
-            <ListChecks size={20} />
-            <h2>개념 선택</h2>
+          <div>
+            <span>진행</span>
+            <strong>{progressLabel}</strong>
           </div>
-          <div className="concept-list">
-            {concepts.length === 0 && <p className="muted">자료 업로드 후 핵심 개념을 추출하세요.</p>}
-            {concepts.map((concept) => (
-              <button
-                className={`concept-item ${selectedConcept?.id === concept.id ? 'active' : ''}`}
-                key={concept.id}
-                onClick={() => setSelectedConcept(concept)}
-              >
-                <span>{concept.title}</span>
-                <small>{concept.difficulty}</small>
-              </button>
-            ))}
+          <div>
+            <span>남은 힌트</span>
+            <strong>{remainingHints} / {HINT_BUDGET}</strong>
           </div>
-          {selectedConcept && (
-            <div className="result-box compact">
-              <strong>{selectedConcept.title}</strong>
-              <p>{selectedConcept.description}</p>
-              <button
-                className="secondary-btn full-button"
-                disabled={Boolean(loadingLabel)}
-                onClick={() => handleGenerateQuestions(selectedConcept)}
-              >
-                <PlayCircle size={18} />
-                질문 생성
-              </button>
-            </div>
-          )}
-        </section>
+        </div>
 
-        <section className="glass-panel workflow-panel large-panel">
-          <div className="panel-title">
-            <MessageSquareText size={20} />
-            <h2>능동 회상</h2>
-          </div>
-          {!activeQuestion && <p className="muted">개념을 선택하고 질문을 생성하세요.</p>}
-          {activeQuestion && (
-            <>
-              <div className="question-box">
-                <div className="question-meta-row">
-                  <span>{questionTypeLabels[activeQuestion.question_type] ?? activeQuestion.question_type}</span>
-                  <span>{selectedConcept?.difficulty ?? recommendedDifficulty}</span>
-                  <span>{methodLabels[learningMode] ?? learningMode}</span>
-                </div>
-                <p>{activeQuestion.question_text}</p>
+        {!activeQuestion && (
+          <div className="study-start-grid">
+            <section className="study-start-panel">
+              <div className="panel-title">
+                <FileUp size={20} />
+                <h2>PDF 업로드</h2>
               </div>
+              <label className="upload-box">
+                <input
+                  accept="application/pdf"
+                  type="file"
+                  onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                />
+                <span>{file ? file.name : 'PDF 파일 선택'}</span>
+              </label>
+              <button className="glow-btn full-button" disabled={!file || Boolean(loadingLabel)} onClick={handleUploadAndStart}>
+                <FileUp size={18} />
+                업로드하고 시작
+              </button>
+            </section>
+
+            <section className="study-start-panel">
+              <div className="panel-title">
+                <FileText size={20} />
+                <h2>기존 자료</h2>
+              </div>
+              <div className="material-list">
+                {materials.length === 0 && <p className="muted">아직 업로드한 자료가 없습니다.</p>}
+                {materials.map((item) => (
+                  <button
+                    className="material-item"
+                    disabled={Boolean(loadingLabel)}
+                    key={item.id}
+                    onClick={() => handleStartExisting(item.id)}
+                    type="button"
+                  >
+                    <strong>{item.title}</strong>
+                    <span>{item.extracted_text_length.toLocaleString()}자</span>
+                    <p>{item.preview || '미리보기가 없습니다.'}</p>
+                  </button>
+                ))}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {activeQuestion && !sessionComplete && (
+          <div className="recall-flow">
+            <section className="question-card">
+              <div className="question-meta-row">
+                <span>{questionTypeLabels[activeQuestion.question_type] ?? activeQuestion.question_type}</span>
+                <span>{concept?.title}</span>
+              </div>
+              <h2>{activeQuestion.question_text}</h2>
+            </section>
+
+            <section className="answer-block">
               <textarea
                 className="answer-input"
-                placeholder="기억에서 직접 꺼낸 답변을 입력하세요."
+                disabled={Boolean(answer)}
+                placeholder="정답을 보기 전에 기억에서 직접 꺼낸 답을 적어보세요."
                 value={answerText}
                 onChange={(event) => setAnswerText(event.target.value)}
               />
-              <button
-                className="glow-btn full-button"
-                disabled={!answerText.trim() || Boolean(loadingLabel)}
-                onClick={handleSubmitAnswer}
-              >
-                <Send size={18} />
-                답변 평가
-              </button>
-            </>
-          )}
+              <div className="action-row">
+                <button className="secondary-btn" disabled={!canUseSupport} onClick={useHint} type="button">
+                  <HelpCircle size={18} />
+                  Hint
+                </button>
+                <button
+                  className="glow-btn"
+                  disabled={!answerText.trim() || Boolean(answer) || Boolean(loadingLabel)}
+                  onClick={handleSubmitAnswer}
+                  type="button"
+                >
+                  <Send size={18} />
+                  답변 제출
+                </button>
+              </div>
+            </section>
 
-          {answer && (
-            <div className="evaluation-grid">
-              <div className="metric-card">
-                <span>정확도</span>
-                <strong>{formatPercent(answer.correctness_score)}</strong>
-              </div>
-              <div className="metric-card">
-                <span>오개념</span>
-                <strong>{answer.misconception_detected ? '감지' : '없음'}</strong>
-              </div>
-              <div className="metric-card wide">
-                <span>피드백</span>
-                <p>{answer.feedback}</p>
-              </div>
-              {answer.missing_points && (
-                <div className="metric-card wide warning">
-                  <span>누락 개념</span>
-                  <p>{answer.missing_points}</p>
+            {!answer && (
+              <section className="stuck-panel">
+                <div className="panel-title">
+                  <MessageSquareText size={19} />
+                  <h2>막혔나요?</h2>
                 </div>
-              )}
-              <div className="metric-card wide">
-                <span>개인화 다음 행동</span>
-                <p>{nextAction}</p>
-              </div>
-              <div className="metric-card wide">
-                <EvidenceList evidence={answer.evidence} />
-              </div>
-            </div>
-          )}
+                <div className="stuck-grid">
+                  {stuckOptions.map((option) => (
+                    <button
+                      className="stuck-option"
+                      disabled={!canUseSupport}
+                      key={option.label}
+                      onClick={() => useStuckOption(option)}
+                      type="button"
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
 
-          {adaptiveState && (
-            <div className="adaptive-coach">
-              <div className="panel-title">
-                <Gauge size={19} />
-                <h3>개인화 코치</h3>
-              </div>
-              <div className="adaptive-metrics">
-                <div>
-                  <span>현재 수준</span>
-                  <strong>{adaptiveState.learner_level_label}</strong>
-                </div>
-                <div>
-                  <span>숙련도</span>
-                  <strong>{formatPercent(adaptiveState.mastery_level)}</strong>
-                </div>
-                <div>
-                  <span>인지 부하</span>
-                  <strong>{formatPercent(adaptiveState.cognitive_load_score)}</strong>
-                </div>
-              </div>
-              <div className="adaptive-guidance">
-                <span>
-                  다음 질문: {adaptiveState.next_difficulty} ·{' '}
-                  {questionTypeLabels[adaptiveState.next_question_type] ?? adaptiveState.next_question_type}
-                </span>
-                <p>{adaptiveState.personalized_explanation}</p>
-                <p>{adaptiveState.recommended_strategy}</p>
-              </div>
-              <button
-                className="secondary-btn full-button"
-                disabled={!activeQuestion || questions.length < 2 || Boolean(loadingLabel)}
-                onClick={handleMoveToAdaptiveQuestion}
-              >
-                <PlayCircle size={18} />
-                추천 질문으로 진행
-              </button>
-            </div>
-          )}
-        </section>
-
-        <section className="glass-panel workflow-panel">
-          <div className="panel-title">
-            <HelpCircle size={20} />
-            <h2>힌트</h2>
-          </div>
-          <button className="secondary-btn full-button" disabled={!canRequestHint || Boolean(loadingLabel)} onClick={handleRequestHint}>
-            <HelpCircle size={18} />
-            Level {Math.min(currentHintLevel, 5)} 힌트
-          </button>
-          <div className="hint-ladder">
-            {[1, 2, 3, 4, 5].map((level) => (
-              <div
-                className={`hint-step ${hints.length >= level ? 'done' : currentHintLevel === level && answer ? 'current' : ''}`}
-                key={level}
-              >
-                <span>힌트 {level}</span>
-                <strong>{hintLevelLabels[level]}</strong>
-              </div>
-            ))}
-          </div>
-          <div className="hint-list">
-            {hints.length === 0 && <p className="muted">답변 평가 후 단계별 힌트를 요청하세요.</p>}
-            {hints.map((hint) => (
-              <div className="hint-card" key={hint.id}>
-                <span>Level {hint.hint_level}</span>
-                <p>{hint.hint_text}</p>
-                <EvidenceList evidence={hint.evidence} />
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="glass-panel workflow-panel">
-          <div className="panel-title">
-            <RefreshCcw size={20} />
-            <h2>자기 설명</h2>
-          </div>
-          <textarea
-            className="answer-input small"
-            placeholder="방금 개념을 자신의 언어로 다시 설명하세요."
-            value={selfExplanationText}
-            onChange={(event) => setSelfExplanationText(event.target.value)}
-          />
-          <button
-            className="secondary-btn full-button"
-            disabled={!selectedConcept || selfExplanationText.trim().length < 10 || Boolean(loadingLabel)}
-            onClick={handleSubmitSelfExplanation}
-          >
-            <Send size={18} />
-            설명 평가
-          </button>
-          {selfExplanation && (
-            <div className="evaluation-grid compact-grid">
-              <div className="metric-card">
-                <span>정확성</span>
-                <strong>{formatPercent(selfExplanation.accuracy_score)}</strong>
-              </div>
-              <div className="metric-card">
-                <span>완전성</span>
-                <strong>{formatPercent(selfExplanation.completeness_score)}</strong>
-              </div>
-              <div className="metric-card">
-                <span>숙련도</span>
-                <strong>{formatPercent(selfExplanation.mastery_level)}</strong>
-              </div>
-            </div>
-          )}
-        </section>
-
-        <section className="glass-panel workflow-panel report-panel">
-          <div className="panel-title">
-            <BrainCircuit size={20} />
-            <h2>세션 리포트</h2>
-          </div>
-          <button className="secondary-btn full-button" disabled={!sessionId || Boolean(loadingLabel)} onClick={handleLoadReport}>
-            <RefreshCcw size={18} />
-            리포트 조회
-          </button>
-          {!report && <p className="muted">답변 평가 후 리포트를 조회할 수 있습니다.</p>}
-          {report && (
-            <div className="report-content">
-              <div className="report-metrics">
-                <div>
-                  <span>평균 점수</span>
-                  <strong>{formatPercent(report.average_score)}</strong>
-                </div>
-                <div>
-                  <span>오개념</span>
-                  <strong>{report.misconception_count}</strong>
-                </div>
-                <div>
-                  <span>복습 추천</span>
-                  <strong>{report.next_review_concepts.length}</strong>
-                </div>
-              </div>
-              <div className="review-list">
-                {report.next_review_concepts.map((concept) => (
-                  <div className="review-item" key={concept.concept_id}>
-                    <strong>{concept.title}</strong>
-                    <p>{concept.learner_level_label ?? concept.reason}</p>
-                    <span>
-                      다음: {concept.next_difficulty ?? 'adaptive'} ·{' '}
-                      {concept.next_question_type
-                        ? questionTypeLabels[concept.next_question_type] ?? concept.next_question_type
-                        : '복습'}
-                    </span>
-                  </div>
+            {supportEntries.length > 0 && (
+              <section className="support-list">
+                {supportEntries.map((entry) => (
+                  <article className="support-card" key={entry.id}>
+                    <span>{entry.label}</span>
+                    <p>{entry.text}</p>
+                  </article>
                 ))}
+              </section>
+            )}
+
+            {answer && (
+              <section className="feedback-panel">
+                <div className="feedback-summary">
+                  <div>
+                    <span>회상 정확도</span>
+                    <strong>{formatPercent(answer.correctness_score)}</strong>
+                  </div>
+                  <div>
+                    <span>오개념 위험</span>
+                    <strong>{answer.misconception_detected ? '있음' : '낮음'}</strong>
+                  </div>
+                </div>
+                <div className="short-feedback">
+                  <CheckCircle2 size={20} />
+                  <p>{answer.feedback}</p>
+                </div>
+                {answer.missing_points && (
+                  <p className="missing-point">보완할 지점: {answer.missing_points}</p>
+                )}
+              </section>
+            )}
+
+            {answer && (
+              <section className="self-explain-panel">
+                <h2>이 개념을 자신의 말로 설명해보세요</h2>
+                <textarea
+                  className="answer-input small"
+                  placeholder="예: 이 개념은 ... 때문에 중요하고, ...와 연결됩니다."
+                  value={selfExplanationText}
+                  onChange={(event) => setSelfExplanationText(event.target.value)}
+                />
+                <div className="action-row">
+                  <button
+                    className="secondary-btn"
+                    disabled={selfExplanationText.trim().length < 10 || Boolean(selfExplanation) || Boolean(loadingLabel)}
+                    onClick={handleSubmitSelfExplanation}
+                    type="button"
+                  >
+                    <Send size={18} />
+                    설명 제출
+                  </button>
+                  <button
+                    className="glow-btn"
+                    disabled={!selfExplanation || Boolean(loadingLabel)}
+                    onClick={moveNext}
+                    type="button"
+                  >
+                    <ArrowRight size={18} />
+                    {questionIndex + 1 >= questions.length ? '결과 보기' : '다음 질문'}
+                  </button>
+                </div>
+                {selfExplanation && (
+                  <div className="explanation-result">
+                    <span>설명 품질 {formatPercent((selfExplanation.accuracy_score + selfExplanation.completeness_score) / 2)}</span>
+                    <p>{selfExplanation.feedback}</p>
+                  </div>
+                )}
+              </section>
+            )}
+          </div>
+        )}
+
+        {sessionComplete && (
+          <section className="session-result">
+            <BrainCircuit size={42} />
+            <h2>세션 결과</h2>
+            <div className="result-metrics">
+              <div>
+                <span>답변 수</span>
+                <strong>{sessionAnswers.length}</strong>
+              </div>
+              <div>
+                <span>평균 회상</span>
+                <strong>{formatPercent(averageScore)}</strong>
+              </div>
+              <div>
+                <span>사용한 힌트</span>
+                <strong>{supportUsedTotal}</strong>
+              </div>
+              <div>
+                <span>오개념 위험</span>
+                <strong>{sessionAnswers.some((item) => item.misconception) ? '점검 필요' : '낮음'}</strong>
               </div>
             </div>
-          )}
-        </section>
-      </div>
+            <button className="glow-btn" onClick={startOver} type="button">
+              다시 학습하기
+            </button>
+          </section>
+        )}
+      </section>
     </div>
   );
 };
